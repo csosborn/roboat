@@ -1,3 +1,4 @@
+#include <EEPROM.h>
 #include <TinyGPS++.h>
 
 #include <AnalogIn.h>
@@ -7,9 +8,76 @@
 #include <PwmOut.h>
 #include <SafetyPin.h>
 
+#include <SPI.h>
+#include "SdFat.h"
 
 DigitalOut onboardLed(LED_BUILTIN);
 DigitalOut rpiBootTrigger(28);  // trigger for triggering RPi boot when it is idle
+
+
+// SD Card
+bool sdCardAvailable = false;
+SdFatSdioEX sd;
+//SdFat sd;
+uint32_t sdCardSize;
+
+uint32_t nextLogTime;
+static uint32_t logInterval = 1e6;  // 1 full second
+uint32_t statusBlinkEndTime = 0;
+uint32_t lastLoopStartTime;
+
+
+class BoatLog {
+
+  private:
+    uint32_t m_logNumber;
+    
+    ostream &m_serialEcho;
+    bool m_enableEcho;
+    
+    String m_linePrefix;
+
+    String m_fileName;
+    ofstream m_fileStream;
+
+  public:
+    BoatLog(uint32_t logNumber, FatVolume &sdVolume, ostream &serialEcho) : 
+      m_logNumber(logNumber),
+      m_serialEcho(serialEcho),
+      m_enableEcho(true),
+      m_linePrefix(String(m_logNumber) + ",") {
+
+      m_enableEcho = true;
+      m_fileName = String("Log_").concat(m_logNumber).concat(".csv");
+      m_serialEcho << F("Creating boat log #") << m_logNumber << " as file " << m_fileName.c_str() << "." << endl;
+      m_fileStream.open(m_fileName.c_str(), ios_base::out | ios_base::app);
+    }
+
+    BoatLog(uint32_t logNumber, ostream &serialEcho) : 
+      m_logNumber(logNumber),
+      m_serialEcho(serialEcho),
+      m_enableEcho(true),
+      m_linePrefix(String(m_logNumber) + ",") {
+      
+      m_serialEcho << F("Creating boat log #") << m_logNumber << F(" WITHOUT SD CARD. No persistent log will be kept.") << endl;
+    }
+
+    void writeln(const String& line) {
+      if (m_enableEcho) {
+        m_serialEcho << F("LOG: ") << m_linePrefix.c_str() << millis() << "," << line.c_str() << endl;
+      }
+      if (m_fileStream.is_open()) {
+        m_fileStream << m_linePrefix.c_str() << millis() << "," << line.c_str() << endl;
+        m_fileStream.flush();
+      }
+    }
+
+    void setEnableEcho(bool enableEcho) {
+      m_enableEcho = enableEcho;
+    }
+  
+};
+
 
 // Left Thruster
 DigitalOut leftThrusterEn(24);
@@ -24,6 +92,7 @@ PwmOut rightThrusterRev(38);
 // Debug (USB) serial connection
 usb_serial_class &debugSerial(Serial);
 const int DEBUG_SERIAL_BAUD = 115200;
+ArduinoOutStream debugOut(debugSerial);
 
 // Serial connection to GPS receiver
 //HardwareSerial &gpsSerial(Serial1);
@@ -38,32 +107,136 @@ const int RPI_SERIAL_BAUD = 115200;
 // GPS Parser
 TinyGPSPlus gps;
 
+uint16_t epoch = 0;
+static const int EPOCH_ADDRESS_LSB = 512;
+static const int EPOCH_ADDRESS_MSB = 513;
+
+
+void setEpoch(uint16_t newEpoch) {
+  uint8_t msb = (newEpoch & 0xFF00) >> 8;
+  uint8_t lsb = (newEpoch & 0x00FF);
+  EEPROM.write(EPOCH_ADDRESS_MSB, msb);
+  EEPROM.write(EPOCH_ADDRESS_LSB, lsb);
+}
+
+uint16_t getAndIncrementEpoch() {
+  uint8_t msb = EEPROM.read(EPOCH_ADDRESS_MSB);
+  uint8_t lsb = EEPROM.read(EPOCH_ADDRESS_LSB);
+  uint32_t epoch = msb;
+  epoch <<= 8;
+  epoch += lsb;
+  epoch += 1;
+  setEpoch(epoch);
+  return epoch;
+}
+
+
+//uint32_t sdVolumeFreeSpace(const SdVolume& volume) {
+//  uint32_t volumesize;
+//  volumesize = volume.blocksPerCluster() * volume.clusterCount();
+//  volumesize /= 2;    // blocks are 512 bytes each
+//  volumesize /= 1024; // convert to megabytes
+//  return volumesize;
+//}
+
+BoatLog *boatLog = NULL;
+
+// Logged status values
+bool gpsFixValid = false;
+uint32_t gpsFixAge = 0;
+uint32_t maxLoopTime = 0;
+
+
 void setup() {
+  // Turn on the orange LED for the duration of setup, then go to normal diagnostic blink mode.
+  onboardLed.high();
+
   // Set up debug serial output first
   debugSerial.begin(DEBUG_SERIAL_BAUD);
-  
-  delay(1000);
-  debugSerial.println("Beginning Roboat startup...");
-  delay(1000);
 
-  debugSerial.println("Disabling RPi boot trigger.");
+  delay(1000);
+  debugOut << F("Beginning Roboat startup...") << endl;
+  delay(100);
+  epoch = getAndIncrementEpoch();
+  debugOut << F("Epoch Number: ") << epoch << endl;
+
+  debugOut << F("Disabling RPi boot trigger.") << endl;
   rpiBootTrigger.high();
 
-  debugSerial.print("Configuring GPS serial port for ");
-  debugSerial.print(GPS_SERIAL_BAUD);
-  debugSerial.println(" baud.");
+  // Attempt to set up the SD card
+  if (!sd.cardBegin()) {
+    debugOut << F("Failed to initialize SD card.") << endl;
+  } else {
+    sdCardSize = sd.card()->cardSize();
+    if (sdCardSize == 0) {
+      debugOut << F("Failed to read size of SD card.") << endl;
+    } else if (!sd.fsBegin()) {
+      debugOut << F("Failed to start filesystem on SD card.") << endl;
+    } else {
+      uint32_t volFree = sd.vol()->freeClusterCount();
+      float fs = 0.000512 * volFree * sd.vol()->blocksPerCluster();
+      debugOut << F("Successfully started up SD card with ") << fs << F(" MB of free space.") << endl;
+      sdCardAvailable = true;
+    }
+  }
+
+  debugOut << F("Configuring GPS serial port for ") << GPS_SERIAL_BAUD << F(" baud.") << endl;
   gpsSerial.begin(GPS_SERIAL_BAUD);
 
-  debugSerial.print("Configuring RPi serial port for ");
-  debugSerial.print(RPI_SERIAL_BAUD);
-  debugSerial.println(" baud.");
+  debugOut << F("Configuring RPi serial port for ") << RPI_SERIAL_BAUD << F(" baud.") << endl;
   rpiSerial.begin(RPI_SERIAL_BAUD);
 
-  debugSerial.println("Startup complete.");
-  debugSerial.println("===============================");
+  if (sdCardAvailable) {
+    boatLog = new BoatLog(epoch, *sd.vol(), debugOut);
+  } else {
+    boatLog = new BoatLog(epoch, debugOut);
+  }
+
+  nextLogTime = micros();
+  lastLoopStartTime = nextLogTime;
+
+  debugOut << F("Startup complete.") << endl;
+  debugOut << F("===============================") << endl;
+
+  onboardLed.low();
 }
 
 void loop() {
+  // The main loop logs a status message every second.
+
+  uint32_t currentMicros = micros();
+  uint32_t lastLoopDuration = currentMicros - lastLoopStartTime;
+  if (lastLoopDuration > maxLoopTime) {
+    maxLoopTime = lastLoopDuration;
+  }
+  lastLoopStartTime = currentMicros;
+
+  if (currentMicros >= nextLogTime) {
+    onboardLed.high();
+
+    String logLine = lastLoopDuration;
+    if (gpsFixValid) {
+      logLine.concat(",1,");
+      logLine.concat(String(gps.location.lat(), 12));
+      logLine.concat(",");
+      logLine.concat(String(gps.location.lng(), 12));
+      logLine.concat(",");
+    } else {
+      logLine.concat(",0,0,0,");
+    }
+    logLine.concat(int(gps.satellites.value()));
+    logLine.concat(",");
+    logLine.concat(int(gpsFixAge));
+
+    boatLog->writeln(logLine);
+
+    nextLogTime += logInterval;
+    statusBlinkEndTime = currentMicros + 10000;
+    maxLoopTime = 0;
+  } else if (currentMicros >= statusBlinkEndTime) {
+    onboardLed.low();
+  }
+
 
   // Feed any new GPS data into the parser.
   if (gpsSerial.available() > 0) {
@@ -71,25 +244,15 @@ void loop() {
       gps.encode(gpsSerial.read());
     }
 
-    if (gps.location.isValid()) {
+    gpsFixValid = gps.location.isValid();
+    gpsFixAge = gps.location.age();
+
+    if (gpsFixValid) {
       if (gps.location.isUpdated()) {
-        onboardLed.write(gps.location.age() < 1000);
-        debugSerial.print(gps.location.age());
-        debugSerial.print("ms  ");
-        debugSerial.print(gps.time.hour());
-        debugSerial.print(":");
-        debugSerial.print(gps.time.minute());
-        debugSerial.print(":");
-        debugSerial.print(gps.time.second());
-        debugSerial.print("  (");
-        debugSerial.print(gps.location.lat(), 8);
-        debugSerial.print(", ");
-        debugSerial.print(gps.location.lng(), 8);
-        debugSerial.print(") : ");
-        debugSerial.println(gps.speed.mph());
-      } else {
-    //    debugSerial.println("No valid GPS data.");
+        debugOut << int(gps.location.age()) << "ms  " << int(gps.time.hour()) << ":" << int(gps.time.minute()) << ":" << int(gps.time.second())
+                 << "  (" << setprecision(8) << gps.location.lat() << ", " << gps.location.lng() << ") : " << setprecision(3) << gps.speed.mph() << "mph" << endl;
       }
     }
+
   }
 }
