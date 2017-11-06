@@ -79,26 +79,40 @@ class BoatLog {
 
 
 ///////////////////////////////////////////////////////////////////
-// Pin Assignments
+// Pin and Interface Assignments
 ///////////////////////////////////////////////////////////////////
 
 DigitalOut onboardLed(LED_BUILTIN);
-DigitalOut rpiBootTrigger(28);  // trigger for triggering RPi boot when it is idle
+DigitalOut rpiBootTrigger(26);  // trigger for triggering RPi boot when it is idle
 
+// Subsystem Enables
+DigitalOut drivePowerEnable(24);     // enable the motor drives
+DigitalOut navPowerEnable(32);       // enable 3.3v power to the IMU and GPS
+DigitalOut navLightCommsEnable(39);   // enable communications to the navigation lights
 
-DigitalOut driveEnable(24);
+// Battery Charger
+DigitalIn batteryChargerPG(23);
+DigitalIn batteryChargerStat1(21);
+DigitalIn batteryChargerStat2(22);
 
 // Right Thruster
-PwmOut rightDrive1(35);
-PwmOut rightDrive2(36);
+PwmOut rightDrive1(30);
+PwmOut rightDrive2(29);
 
 // Left Thruster
-PwmOut leftDrive1(37);
-PwmOut leftDrive2(38);
+PwmOut leftDrive1(35);
+PwmOut leftDrive2(36);
 
 // IMU (via I2C, on the "Wire" interface)
+auto &imuI2CWire(Wire);
 DigitalOut imuReset(17);
+DigitalIn imuAI1(6);
+DigitalIn imuAI2(5);
+DigitalIn imuGI1(8);
+DigitalIn imuGI2(7);
 
+// Power monitor (via I2C, on the "Wire1" interface)
+auto &powerSenseI2CWire(Wire1);
 
 // Debug (USB) serial connection
 auto &debugSerial(Serial);
@@ -106,14 +120,17 @@ const int DEBUG_SERIAL_BAUD = 115200;
 ArduinoOutStream debugOut(debugSerial);
 
 // Serial connection to GPS receiver
-//HardwareSerial &gpsSerial(Serial1);
-auto &gpsSerial(Serial2);
+auto &gpsSerial(Serial1);
 const int GPS_SERIAL_BAUD = 9600;
 
 // Serial connection to Raspberry Pi
-//HardwareSerial &rpiSerial(Serial2);
-auto &rpiSerial(Serial1);
+auto &rpiSerial(Serial2);
 const int RPI_SERIAL_BAUD = 115200;
+
+
+///////////////////////////////////////////////////////////////////
+// Other Globals
+///////////////////////////////////////////////////////////////////
 
 // GPS Parser
 TinyGPSPlus gps;
@@ -149,6 +166,10 @@ uint32_t gpsFixAge = 0;
 uint32_t maxLoopTime = 0;
 
 
+///////////////////////////////////////////////////////////////////
+// Setup and Loop
+///////////////////////////////////////////////////////////////////
+
 void setup() {
   // Turn on the orange LED for the duration of setup, then go to normal diagnostic blink mode.
   onboardLed.high();
@@ -161,6 +182,13 @@ void setup() {
   delay(100);
   epoch = getAndIncrementEpoch();
   debugOut << F("Epoch Number: ") << epoch << endl;
+
+  // Start by turning off everything that can be turned off.
+  // Will bring it up gradually while doing system checks.
+  debugOut << F("Disabling drive, nav sensor, and nav light subsystems.") << endl;
+  drivePowerEnable.low();
+  navPowerEnable.low();
+  navLightCommsEnable.low();
 
   debugOut << F("Disabling RPi boot trigger.") << endl;
   rpiBootTrigger.high();
@@ -194,8 +222,12 @@ void setup() {
     boatLog = new BoatLog(epoch, debugOut);
   }
 
+  debugOut << F("Connecting to power monitor...") << endl;
+  powerSenseI2CWire.begin();
+
   debugOut << F("Connecting to IMU...") << endl;
-  Wire.begin();
+  imuI2CWire.begin();
+
 
   nextLogTime = micros();
   lastLoopStartTime = nextLogTime;
