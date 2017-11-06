@@ -7,3 +7,12 @@
 [submodule "src/arduino/libraries/SafetyPin"]
 	path = src/arduino/libraries/SafetyPin
 	url = git@github.com:csosborn/SafetyPin.git
+[submodule "hw/Eagle Libraries/INA219"]
+	path = hw/Eagle Libraries/INA219
+	url = https://github.com/Igor-Misic/INA219.git
+[submodule "src/arduino/libraries/Adafruit_INA219"]
+	path = src/arduino/libraries/Adafruit_INA219
+	url = https://github.com/adafruit/Adafruit_INA219.git
+[submodule "hw/Eagle Libraries/SparkFun-Eagle-Libraries"]
+	path = hw/Eagle Libraries/SparkFun-Eagle-Libraries
+	url = https://github.com/sparkfun/SparkFun-Eagle-Libraries.git

@@ -11,8 +11,7 @@
 #include <SPI.h>
 #include "SdFat.h"
 
-DigitalOut onboardLed(LED_BUILTIN);
-DigitalOut rpiBootTrigger(28);  // trigger for triggering RPi boot when it is idle
+#include <i2c_t3.h>
 
 
 // SD Card
@@ -79,29 +78,41 @@ class BoatLog {
 };
 
 
-// Left Thruster
-DigitalOut leftThrusterEn(24);
-PwmOut leftThrusterFor(35);
-PwmOut leftThrusterRev(36);
+///////////////////////////////////////////////////////////////////
+// Pin Assignments
+///////////////////////////////////////////////////////////////////
+
+DigitalOut onboardLed(LED_BUILTIN);
+DigitalOut rpiBootTrigger(28);  // trigger for triggering RPi boot when it is idle
+
+
+DigitalOut driveEnable(24);
 
 // Right Thruster
-DigitalOut rightThrusterEn(25);
-PwmOut rightThrusterFor(37);
-PwmOut rightThrusterRev(38);
+PwmOut rightDrive1(35);
+PwmOut rightDrive2(36);
+
+// Left Thruster
+PwmOut leftDrive1(37);
+PwmOut leftDrive2(38);
+
+// IMU (via I2C, on the "Wire" interface)
+DigitalOut imuReset(17);
+
 
 // Debug (USB) serial connection
-usb_serial_class &debugSerial(Serial);
+auto &debugSerial(Serial);
 const int DEBUG_SERIAL_BAUD = 115200;
 ArduinoOutStream debugOut(debugSerial);
 
 // Serial connection to GPS receiver
 //HardwareSerial &gpsSerial(Serial1);
-HardwareSerial &gpsSerial(Serial2);
+auto &gpsSerial(Serial2);
 const int GPS_SERIAL_BAUD = 9600;
 
 // Serial connection to Raspberry Pi
 //HardwareSerial &rpiSerial(Serial2);
-HardwareSerial &rpiSerial(Serial1);
+auto &rpiSerial(Serial1);
 const int RPI_SERIAL_BAUD = 115200;
 
 // GPS Parser
@@ -129,15 +140,6 @@ uint16_t getAndIncrementEpoch() {
   setEpoch(epoch);
   return epoch;
 }
-
-
-//uint32_t sdVolumeFreeSpace(const SdVolume& volume) {
-//  uint32_t volumesize;
-//  volumesize = volume.blocksPerCluster() * volume.clusterCount();
-//  volumesize /= 2;    // blocks are 512 bytes each
-//  volumesize /= 1024; // convert to megabytes
-//  return volumesize;
-//}
 
 BoatLog *boatLog = NULL;
 
@@ -192,8 +194,30 @@ void setup() {
     boatLog = new BoatLog(epoch, debugOut);
   }
 
+  debugOut << F("Connecting to IMU...") << endl;
+  Wire.begin();
+
   nextLogTime = micros();
   lastLoopStartTime = nextLogTime;
+
+
+  SdFile file;
+  sd.vwd()->rewind();
+  while (file.openNext(sd.vwd(), O_READ)) {
+    file.printFileSize(&debugSerial);
+    debugSerial.write(' ');
+    file.printModifyDateTime(&debugSerial);
+    debugSerial.write(' ');
+    file.printName(&debugSerial);
+    if (file.isDir()) {
+      // Indicate a directory.
+      debugSerial.write('/');
+    }
+    debugSerial.println();
+    file.close();
+  }
+  debugSerial.println("Done!");
+
 
   debugOut << F("Startup complete.") << endl;
   debugOut << F("===============================") << endl;
@@ -231,7 +255,7 @@ void loop() {
     boatLog->writeln(logLine);
 
     nextLogTime += logInterval;
-    statusBlinkEndTime = currentMicros + 10000;
+    statusBlinkEndTime = currentMicros + 1000;
     maxLoopTime = 0;
   } else if (currentMicros >= statusBlinkEndTime) {
     onboardLed.low();
