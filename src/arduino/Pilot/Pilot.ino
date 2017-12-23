@@ -1,3 +1,5 @@
+#include <RoboatAHRS.h>
+
 #include <EEPROM.h>
 #include <TinyGPS++.h>
 
@@ -12,12 +14,12 @@
 #include "SdFat.h"
 
 #include <i2c_t3.h>
+#include <Adafruit_INA219.h>
 
 
 // SD Card
 bool sdCardAvailable = false;
 SdFatSdioEX sd;
-//SdFat sd;
 uint32_t sdCardSize;
 
 uint32_t nextLogTime;
@@ -48,7 +50,6 @@ class BoatLog {
 
       m_enableEcho = true;
       m_fileName = String("Log_").concat(m_logNumber).concat(".csv");
-      m_serialEcho << F("Creating boat log #") << m_logNumber << " as file " << m_fileName.c_str() << "." << endl;
       m_fileStream.open(m_fileName.c_str(), ios_base::out | ios_base::app);
     }
 
@@ -91,9 +92,11 @@ DigitalOut navPowerEnable(32);       // enable 3.3v power to the IMU and GPS
 DigitalOut navLightCommsEnable(39);   // enable communications to the navigation lights
 
 // Battery Charger
-DigitalIn batteryChargerPG(23);
-DigitalIn batteryChargerStat1(21);
-DigitalIn batteryChargerStat2(22);
+// all three of the charger status inputs are open-drain, so enable pullups to differentiate
+// between low and hi-Z states.
+DigitalIn batteryChargerPG(23, true);
+DigitalIn batteryChargerStat1(21, true);
+DigitalIn batteryChargerStat2(22, true);
 
 // Right Thruster
 PwmOut rightDrive1(30);
@@ -110,9 +113,12 @@ DigitalIn imuAI1(6);
 DigitalIn imuAI2(5);
 DigitalIn imuGI1(8);
 DigitalIn imuGI2(7);
+Roboat::AHRS ahrs(imuReset);
+
 
 // Power monitor (via I2C, on the "Wire1" interface)
 auto &powerSenseI2CWire(Wire1);
+Adafruit_INA219 powerMonitor(INA219_ADDRESS, powerSenseI2CWire);
 
 // Debug (USB) serial connection
 auto &debugSerial(Serial);
@@ -126,6 +132,7 @@ const int GPS_SERIAL_BAUD = 9600;
 // Serial connection to Raspberry Pi
 auto &rpiSerial(Serial2);
 const int RPI_SERIAL_BAUD = 115200;
+ArduinoOutStream rpiOut(rpiSerial);
 
 
 ///////////////////////////////////////////////////////////////////
@@ -190,6 +197,9 @@ void setup() {
   navPowerEnable.low();
   navLightCommsEnable.low();
 
+  debugOut << F("Turning on power monitor.") << endl;
+  powerMonitor.begin();
+
   debugOut << F("Disabling RPi boot trigger.") << endl;
   rpiBootTrigger.high();
 
@@ -217,18 +227,19 @@ void setup() {
   rpiSerial.begin(RPI_SERIAL_BAUD);
 
   if (sdCardAvailable) {
-    boatLog = new BoatLog(epoch, *sd.vol(), debugOut);
+    boatLog = new BoatLog(epoch, *sd.vol(), rpiOut);
   } else {
-    boatLog = new BoatLog(epoch, debugOut);
+    boatLog = new BoatLog(epoch, rpiOut);
   }
 
-  debugOut << F("Connecting to power monitor...") << endl;
-  powerSenseI2CWire.begin();
-
+  debugOut << F("Enabling nav power...") << endl;
+  navPowerEnable.high();
+  
   debugOut << F("Connecting to IMU...") << endl;
   imuI2CWire.begin();
 
-
+  ahrs.setActive(true);
+  
   nextLogTime = micros();
   lastLoopStartTime = nextLogTime;
 
@@ -267,10 +278,16 @@ void loop() {
   }
   lastLoopStartTime = currentMicros;
 
+  ahrs.update(currentMicros);
+
   if (currentMicros >= nextLogTime) {
     onboardLed.high();
 
     String logLine = lastLoopDuration;
+
+    logLine.concat(",");
+    logLine.concat(int(navPowerEnable.read()));
+    
     if (gpsFixValid) {
       logLine.concat(",1,");
       logLine.concat(String(gps.location.lat(), 12));
@@ -284,11 +301,64 @@ void loop() {
     logLine.concat(",");
     logLine.concat(int(gpsFixAge));
 
+    float busvoltage = powerMonitor.getBusVoltage_V();
+    float current_mA = -1 * powerMonitor.getCurrent_mA();
+
+    logLine.concat(",");
+    logLine.concat(String(busvoltage, 8));
+    logLine.concat(",");
+    logLine.concat(String(current_mA/1000, 8));
+
+    bool pg = !batteryChargerPG.read();
+    bool stat1 = !batteryChargerStat1.read();
+    bool stat2 = !batteryChargerStat2.read();
+
+    logLine.concat(",");
+    logLine.concat(String(pg));
+    logLine.concat(",");
+    logLine.concat(String(stat1));
+    logLine.concat(",");
+    logLine.concat(String(stat2));
+
+    logLine.concat(ahrs.getState());
+    logLine.concat(",");
+    if (ahrs.getState() == Roboat::AHRSState::RUNNING) {
+      logLine.concat(ahrs.getHeading());
+    } else {
+      logLine.concat("-");
+    }
+
     boatLog->writeln(logLine);
 
     nextLogTime += logInterval;
     statusBlinkEndTime = currentMicros + 1000;
     maxLoopTime = 0;
+
+//    debugOut << (pg ? "O " : "X ") << (stat1 ? "O " : "X ") << (stat2 ? "O " : "X ") << endl;
+    if (pg) {
+      if (!(stat1 && stat2)) {
+        debugOut << F("On external power.");
+        if (!stat1 && !stat2) {
+          debugOut << F("  No battery present.");
+        } else if (!stat1 && stat2) {
+          debugOut << F("  Charge complete.");
+        } else if (stat1 && !stat2) {
+          debugOut << F("  Charging...");
+        }
+      } else {
+        debugOut << F("Battery temperature fault.");
+      }
+    } else {
+      debugOut << F("On battery power.");
+    }
+
+    debugOut << "  Bus Voltage: " << busvoltage << " V";
+    debugOut << "  Current: " << current_mA << " mA";
+    debugOut << "  Power: " << (busvoltage * current_mA / 1000) << " W";
+
+    debugOut << endl;
+
+    
   } else if (currentMicros >= statusBlinkEndTime) {
     onboardLed.low();
   }
@@ -303,12 +373,12 @@ void loop() {
     gpsFixValid = gps.location.isValid();
     gpsFixAge = gps.location.age();
 
-    if (gpsFixValid) {
-      if (gps.location.isUpdated()) {
-        debugOut << int(gps.location.age()) << "ms  " << int(gps.time.hour()) << ":" << int(gps.time.minute()) << ":" << int(gps.time.second())
-                 << "  (" << setprecision(8) << gps.location.lat() << ", " << gps.location.lng() << ") : " << setprecision(3) << gps.speed.mph() << "mph" << endl;
-      }
-    }
+//    if (gpsFixValid) {
+//      if (gps.location.isUpdated()) {
+//        debugOut << int(gps.location.age()) << "ms  " << int(gps.time.hour()) << ":" << int(gps.time.minute()) << ":" << int(gps.time.second())
+//                 << "  (" << setprecision(8) << gps.location.lat() << ", " << gps.location.lng() << ") : " << setprecision(3) << gps.speed.mph() << "mph" << endl;
+//      }
+//    }
 
   }
 }

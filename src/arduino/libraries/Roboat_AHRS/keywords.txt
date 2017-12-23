@@ -1,0 +1,26 @@
+#######################################
+# Syntax Coloring Map for Roboat_AHRS
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+Roboat	KEYWORD1
+AHRS	KEYWORD1
+AHRSState	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+setActive	KEYWORD2
+update	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+STARTUP LITERAL1
+DISABLED    LITERAL1
+RUNNING LITERAL1

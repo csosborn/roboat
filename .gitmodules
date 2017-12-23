@@ -16,3 +16,15 @@
 [submodule "hw/Eagle Libraries/SparkFun-Eagle-Libraries"]
 	path = hw/Eagle Libraries/SparkFun-Eagle-Libraries
 	url = https://github.com/sparkfun/SparkFun-Eagle-Libraries.git
+[submodule "src/arduino/libraries/Adafruit_FXOS8700"]
+	path = src/arduino/libraries/Adafruit_FXOS8700
+	url = https://github.com/adafruit/Adafruit_FXOS8700.git
+[submodule "src/arduino/libraries/Adafruit_FXAS21002C"]
+	path = src/arduino/libraries/Adafruit_FXAS21002C
+	url = https://github.com/adafruit/Adafruit_FXAS21002C.git
+[submodule "src/arduino/libraries/Adafruit_Sensor"]
+	path = src/arduino/libraries/Adafruit_Sensor
+	url = https://github.com/adafruit/Adafruit_Sensor.git
+[submodule "src/arduino/libraries/Adafruit_AHRS"]
+	path = src/arduino/libraries/Adafruit_AHRS
+	url = https://github.com/adafruit/Adafruit_AHRS.git
