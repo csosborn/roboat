@@ -1,6 +1,7 @@
 #ifndef ROBOATSTATEMACHINE_H
 #define ROBOATSTATEMACHINE_H
 
+#include "Arduino.h"
 
 namespace Roboat {
     

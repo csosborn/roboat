@@ -1,21 +1,12 @@
 #include <RoboatAHRS.h>
+#include <RoboatPowerManager.h>
 
 #include <EEPROM.h>
 #include <TinyGPS++.h>
-
-#include <AnalogIn.h>
-#include <DigitalIn.h>
-#include <DigitalOut.h>
-#include <Pin.h>
-#include <PwmOut.h>
 #include <SafetyPin.h>
-
 #include <SPI.h>
 #include "SdFat.h"
-
 #include <i2c_t3.h>
-#include <Adafruit_INA219.h>
-
 
 // SD Card
 bool sdCardAvailable = false;
@@ -115,10 +106,9 @@ DigitalIn imuGI1(8);
 DigitalIn imuGI2(7);
 Roboat::AHRS ahrs(imuReset);
 
-
 // Power monitor (via I2C, on the "Wire1" interface)
 auto &powerSenseI2CWire(Wire1);
-Adafruit_INA219 powerMonitor(INA219_ADDRESS, powerSenseI2CWire);
+Roboat::Power::Manager powerManager(batteryChargerPG, batteryChargerStat1, batteryChargerStat2, powerSenseI2CWire, INA219_ADDRESS);
 
 // Debug (USB) serial connection
 auto &debugSerial(Serial);
@@ -196,9 +186,6 @@ void setup() {
   drivePowerEnable.low();
   navPowerEnable.low();
   navLightCommsEnable.low();
-
-  debugOut << F("Turning on power monitor.") << endl;
-  powerMonitor.begin();
 
   debugOut << F("Disabling RPi boot trigger.") << endl;
   rpiBootTrigger.high();
@@ -279,6 +266,7 @@ void loop() {
   lastLoopStartTime = currentMicros;
 
   ahrs.advance(currentMicros);
+  powerManager.advance(currentMicros);
 
   if (currentMicros >= nextLogTime) {
     onboardLed.high();
@@ -301,25 +289,15 @@ void loop() {
     logLine.concat(",");
     logLine.concat(int(gpsFixAge));
 
-    float busvoltage = powerMonitor.getBusVoltage_V();
-    float current_mA = -1 * powerMonitor.getCurrent_mA();
+    
+    logLine.concat(",");
+    logLine.concat(powerManager.getState());
+    logLine.concat(",");
+    logLine.concat(String(powerManager.getVoltage(), 8));
+    logLine.concat(",");
+    logLine.concat(String(powerManager.getCurrent(), 8));
 
     logLine.concat(",");
-    logLine.concat(String(busvoltage, 8));
-    logLine.concat(",");
-    logLine.concat(String(current_mA/1000, 8));
-
-    bool pg = !batteryChargerPG.read();
-    bool stat1 = !batteryChargerStat1.read();
-    bool stat2 = !batteryChargerStat2.read();
-
-    logLine.concat(",");
-    logLine.concat(String(pg));
-    logLine.concat(",");
-    logLine.concat(String(stat1));
-    logLine.concat(",");
-    logLine.concat(String(stat2));
-
     logLine.concat(ahrs.getState());
     logLine.concat(",");
     if (ahrs.getState() == Roboat::AHRSState::RUNNING) {
@@ -333,31 +311,6 @@ void loop() {
     nextLogTime += logInterval;
     statusBlinkEndTime = currentMicros + 1000;
     maxLoopTime = 0;
-
-//    debugOut << (pg ? "O " : "X ") << (stat1 ? "O " : "X ") << (stat2 ? "O " : "X ") << endl;
-    if (pg) {
-      if (!(stat1 && stat2)) {
-        debugOut << F("On external power.");
-        if (!stat1 && !stat2) {
-          debugOut << F("  No battery present.");
-        } else if (!stat1 && stat2) {
-          debugOut << F("  Charge complete.");
-        } else if (stat1 && !stat2) {
-          debugOut << F("  Charging...");
-        }
-      } else {
-        debugOut << F("Battery temperature fault.");
-      }
-    } else {
-      debugOut << F("On battery power.");
-    }
-
-    debugOut << "  Bus Voltage: " << busvoltage << " V";
-    debugOut << "  Current: " << current_mA << " mA";
-    debugOut << "  Power: " << (busvoltage * current_mA / 1000) << " W";
-
-    debugOut << endl;
-
     
   } else if (currentMicros >= statusBlinkEndTime) {
     onboardLed.low();

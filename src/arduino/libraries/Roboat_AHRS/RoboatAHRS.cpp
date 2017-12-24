@@ -1,5 +1,6 @@
 #include "RoboatAHRS.h"
 
+#include "Arduino.h"
 #include <Adafruit_Sensor.h>
 #include <Adafruit_FXAS21002C.h>
 #include <Adafruit_FXOS8700.h>

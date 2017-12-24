@@ -1,0 +1,28 @@
+#############################################
+# Syntax Coloring Map for Roboat_PowerManager
+#############################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+State	KEYWORD1
+Manager	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+STARTUP LITERAL1
+ERROR LITERAL1
+ERROR_BATT_TEMP LITERAL1
+ACTIVATING LITERAL1
+NO_BATTERY LITERAL1
+BATTERY LITERAL1
+CHARGING LITERAL1
+MAINTAINING LITERAL1
