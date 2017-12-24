@@ -7,7 +7,7 @@
 
 
 namespace Roboat {
-
+    
     // allow the AHRS to settle for 5s before using data
     const uint32_t SETTLING_DELAY = 5e6;
 
@@ -16,7 +16,6 @@ namespace Roboat {
 
     // degrees per radian for conversion
     const float DEG_PER_RAD = 57.2958F;
-
 
     // Mag calibration values are calculated via ahrs_calibration.
     // These values must be determined for each baord/environment.
@@ -38,10 +37,8 @@ namespace Roboat {
 
 
     AHRS::AHRS(DigitalOut& imuResetPin) :
+        StateMachine(STARTUP, "AHRS"),
         imuReset(imuResetPin),
-        state(STARTUP),
-        nextState(STARTUP),
-        lastUpdateTime(10), nextUpdateTime(0), stateEntryTime(10),
         requestedActive(false),
         gyro(Adafruit_FXAS21002C(0x0021002C)),
         accelmag(Adafruit_FXOS8700(0x8700A, 0x8700B)) 
@@ -51,24 +48,8 @@ namespace Roboat {
         requestedActive = active;
     }
 
-    bool AHRS::update(const uint32_t now) {
-        if (now < nextUpdateTime) {
-            return false;
-        } else if (nextState != state) {
-            Serial.print("AHRS state ");
-            Serial.print(stateName(state));
-            Serial.print(" => ");
-            Serial.print(stateName(nextState));
-            Serial.print(" (");
-            Serial.print((now-stateEntryTime)/1000);
-            Serial.println("ms in state)");
-            state = nextState;
-            stateEntryTime = now;
-        }
-
-        lastUpdateTime = now;
-
-        switch (state) {
+    bool AHRS::update() {
+        switch (getState()) {
             case STARTUP:
                 imuReset.low();
                 goToState(DISABLED, 10);
@@ -110,7 +91,7 @@ namespace Roboat {
 
             case SETTLING:
                 updateFilter();
-                if (timeInState() >= SETTLING_DELAY) {
+                if (getTimeInState() >= SETTLING_DELAY) {
                     goToState(RUNNING);
                 }
                 break;
@@ -134,15 +115,6 @@ namespace Roboat {
         }
 
         return false;
-    }
-
-    void AHRS::goToState(AHRSState newState, uint32_t transitionDelay) {
-        // Serial.print("Will go to state ");
-        // Serial.print(stateName(newState));
-        // Serial.print(" in ");
-        // Serial.println(transitionDelay);
-        nextUpdateTime = lastUpdateTime + transitionDelay;
-        nextState = newState;
     }
 
     void AHRS::updateFilter() {
@@ -185,11 +157,7 @@ namespace Roboat {
         heading = filter.getYaw();
     }
 
-    uint32_t AHRS::timeInState() {
-        return lastUpdateTime-stateEntryTime;
-    }
-
-    const char* AHRS::stateName(const AHRSState aState) {
+    const char* AHRS::getStateName(const AHRSState aState) {
         switch (aState) {
             case STARTUP:
                 return "STARTUP";
@@ -211,11 +179,6 @@ namespace Roboat {
             default:
                 return "<INVALID>";
         }
-        
-    }
-
-    AHRSState AHRS::getState() {
-        return state;
     }
 
     float AHRS::getHeading() {

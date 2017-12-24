@@ -278,7 +278,7 @@ void loop() {
   }
   lastLoopStartTime = currentMicros;
 
-  ahrs.update(currentMicros);
+  ahrs.advance(currentMicros);
 
   if (currentMicros >= nextLogTime) {
     onboardLed.high();

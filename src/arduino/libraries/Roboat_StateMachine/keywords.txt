@@ -1,5 +1,5 @@
 #######################################
-# Syntax Coloring Map for Roboat_AHRS
+# Syntax Coloring Map for Roboat_StateMachine
 #######################################
 
 #######################################
@@ -7,28 +7,17 @@
 #######################################
 
 Roboat	KEYWORD1
-AHRS	KEYWORD1
-AHRSState	KEYWORD1
+StateMachine	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
 #######################################
 
-setActive	KEYWORD2
-update	KEYWORD2
-updateFilter	KEYWORD2
+advance	KEYWORD2
+getTimeInState	KEYWORD2
+getState	KEYWORD2
 getStateName	KEYWORD2
-getHeading	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)
 #######################################
-
-STARTUP LITERAL1
-ERROR   LITERAL1
-DISABLED    LITERAL1
-ACTIVATING_1    LITERAL1
-ACTIVATING_2    LITERAL1
-SETTLING    LITERAL1
-RUNNING    LITERAL1
-DEACTIVATING    LITERAL1
