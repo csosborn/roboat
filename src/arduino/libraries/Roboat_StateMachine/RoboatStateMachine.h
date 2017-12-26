@@ -16,7 +16,8 @@ namespace Roboat {
 
     protected:
         void goToState(StateEnum newState, uint32_t transitionDelay = 0);
-        
+        void remain(uint32_t recheckDelay = 0);
+
     public:
         StateMachine(StateEnum initialState, const char * machineName);
         
@@ -38,8 +39,8 @@ namespace Roboat {
     StateMachine<StateEnum, MachineC>::StateMachine(StateEnum initialState, const char * machineName):
         state(initialState),
         nextState(initialState),
-        name(machineName),
-        lastUpdateTime(10), nextUpdateTime(0), stateEntryTime(10)
+        lastUpdateTime(10), nextUpdateTime(0), stateEntryTime(10),
+        name(machineName)        
     {}
 
     template<typename StateEnum, typename MachineC>
@@ -47,7 +48,12 @@ namespace Roboat {
         nextUpdateTime = lastUpdateTime + transitionDelay;
         nextState = newState;
     }
-    
+
+    template<typename StateEnum, typename MachineC>
+    void StateMachine<StateEnum, MachineC>::remain(uint32_t recheckDelay) {
+        goToState(state, recheckDelay);
+    }
+
     template<typename StateEnum, typename MachineC>
     uint32_t StateMachine<StateEnum, MachineC>::getTimeInState() {
         return lastUpdateTime-stateEntryTime;

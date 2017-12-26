@@ -1,3 +1,7 @@
 .DS_Store
 **/*.s#*
-.vscode
+.vscodedesktop
+src/desktop
+roboat-cockpit
+roboat-console
+src/pi

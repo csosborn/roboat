@@ -1,5 +1,6 @@
-#include <RoboatAHRS.h>
 #include <RoboatPowerManager.h>
+#include <RoboatLogManager.h>
+#include <RoboatAHRS.h>
 
 #include <EEPROM.h>
 #include <TinyGPS++.h>
@@ -12,6 +13,9 @@
 bool sdCardAvailable = false;
 SdFatSdioEX sd;
 uint32_t sdCardSize;
+
+Roboat::Log::Manager logManager;
+
 
 uint32_t nextLogTime;
 static uint32_t logInterval = 1e6;  // 1 full second
@@ -191,21 +195,21 @@ void setup() {
   rpiBootTrigger.high();
 
   // Attempt to set up the SD card
-  if (!sd.cardBegin()) {
-    debugOut << F("Failed to initialize SD card.") << endl;
-  } else {
-    sdCardSize = sd.card()->cardSize();
-    if (sdCardSize == 0) {
-      debugOut << F("Failed to read size of SD card.") << endl;
-    } else if (!sd.fsBegin()) {
-      debugOut << F("Failed to start filesystem on SD card.") << endl;
-    } else {
-      uint32_t volFree = sd.vol()->freeClusterCount();
-      float fs = 0.000512 * volFree * sd.vol()->blocksPerCluster();
-      debugOut << F("Successfully started up SD card with ") << fs << F(" MB of free space.") << endl;
-      sdCardAvailable = true;
-    }
-  }
+//  if (!sd.cardBegin()) {
+//    debugOut << F("Failed to initialize SD card.") << endl;
+//  } else {
+//    sdCardSize = sd.card()->cardSize();
+//    if (sdCardSize == 0) {
+//      debugOut << F("Failed to read size of SD card.") << endl;
+//    } else if (!sd.fsBegin()) {
+//      debugOut << F("Failed to start filesystem on SD card.") << endl;
+//    } else {
+//      uint32_t volFree = sd.vol()->freeClusterCount();
+//      float fs = 0.000512 * volFree * sd.vol()->blocksPerCluster();
+//      debugOut << F("Successfully started up SD card with ") << fs << F(" MB of free space.") << endl;
+//      sdCardAvailable = true;
+//    }
+//  }
 
   debugOut << F("Configuring GPS serial port for ") << GPS_SERIAL_BAUD << F(" baud.") << endl;
   gpsSerial.begin(GPS_SERIAL_BAUD);
@@ -213,11 +217,11 @@ void setup() {
   debugOut << F("Configuring RPi serial port for ") << RPI_SERIAL_BAUD << F(" baud.") << endl;
   rpiSerial.begin(RPI_SERIAL_BAUD);
 
-  if (sdCardAvailable) {
-    boatLog = new BoatLog(epoch, *sd.vol(), rpiOut);
-  } else {
-    boatLog = new BoatLog(epoch, rpiOut);
-  }
+//  if (sdCardAvailable) {
+//    boatLog = new BoatLog(epoch, *sd.vol(), rpiOut);
+//  } else {
+  boatLog = new BoatLog(epoch, rpiOut);
+//  }
 
   debugOut << F("Enabling nav power...") << endl;
   navPowerEnable.high();
@@ -231,22 +235,22 @@ void setup() {
   lastLoopStartTime = nextLogTime;
 
 
-  SdFile file;
-  sd.vwd()->rewind();
-  while (file.openNext(sd.vwd(), O_READ)) {
-    file.printFileSize(&debugSerial);
-    debugSerial.write(' ');
-    file.printModifyDateTime(&debugSerial);
-    debugSerial.write(' ');
-    file.printName(&debugSerial);
-    if (file.isDir()) {
-      // Indicate a directory.
-      debugSerial.write('/');
-    }
-    debugSerial.println();
-    file.close();
-  }
-  debugSerial.println("Done!");
+//  SdFile file;
+//  sd.vwd()->rewind();
+//  while (file.openNext(sd.vwd(), O_READ)) {
+//    file.printFileSize(&debugSerial);
+//    debugSerial.write(' ');
+//    file.printModifyDateTime(&debugSerial);
+//    debugSerial.write(' ');
+//    file.printName(&debugSerial);
+//    if (file.isDir()) {
+//      // Indicate a directory.
+//      debugSerial.write('/');
+//    }
+//    debugSerial.println();
+//    file.close();
+//  }
+//  debugSerial.println("Done!");
 
 
   debugOut << F("Startup complete.") << endl;
@@ -267,6 +271,7 @@ void loop() {
 
   ahrs.advance(currentMicros);
   powerManager.advance(currentMicros);
+  logManager.advance(currentMicros);
 
   if (currentMicros >= nextLogTime) {
     onboardLed.high();
@@ -289,6 +294,10 @@ void loop() {
     logLine.concat(",");
     logLine.concat(int(gpsFixAge));
 
+    logLine.concat(",");
+    logLine.concat(logManager.getState());
+    logLine.concat(",");
+    logLine.concat(logManager.getFreeSpace());
     
     logLine.concat(",");
     logLine.concat(powerManager.getState());

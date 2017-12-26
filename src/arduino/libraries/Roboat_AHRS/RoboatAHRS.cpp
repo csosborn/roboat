@@ -40,9 +40,9 @@ namespace Roboat {
     AHRS::AHRS(DigitalOut& imuResetPin) :
         StateMachine(STARTUP, "AHRS"),
         imuReset(imuResetPin),
-        requestedActive(false),
         gyro(Adafruit_FXAS21002C(0x0021002C)),
-        accelmag(Adafruit_FXOS8700(0x8700A, 0x8700B)) 
+        accelmag(Adafruit_FXOS8700(0x8700A, 0x8700B)),
+        requestedActive(false)
     {}
 
     void AHRS::setActive(bool active) {
