@@ -1,6 +1,8 @@
 #include "Arduino.h"
 #include <RoboatLogManager.h>
+// #include <iostream.h>
 
+#include <EEPROM.h>
 
 namespace Roboat {
 
@@ -13,10 +15,15 @@ namespace Roboat {
         
         const uint32_t READY_LOOP_PERIOD = 1e4;  // handle log ops at 100Hz
 
-        Manager::Manager() :
+        Manager::Manager(ostream &serialEcho) :
             StateMachine(STARTUP, "Log"),
             cardSize(0),
-            freeSpace(0)
+            freeSpace(0),
+            epoch(getAndIncrementEpoch()),
+            enableEcho(false),
+            linePrefix(String(getEpoch()) + ","),
+            fileName(String("Log_").concat(getEpoch()).concat(".csv")),
+            serialEcho(serialEcho)            
         {}
 
         bool Manager::update() {
@@ -65,7 +72,7 @@ namespace Roboat {
             freeSpace = 0.512 * volFree * sd.vol()->blocksPerCluster();
         }
 
-        const char * Manager::getStateName(const State aState) {
+        const char * Manager::getStateName(const State aState) const {
             switch (aState) {
                 case STARTUP:
                     return "STARTUP";
@@ -85,9 +92,55 @@ namespace Roboat {
             }
         }
 
-        uint32_t Manager::getFreeSpace() {
+        uint32_t Manager::getFreeSpace() const {
             return freeSpace;
         }
+
+        uint16_t Manager::getEpoch() const {
+            return epoch;
+        }
+
+        void Manager::setEpoch(uint16_t newEpoch) {
+            uint8_t msb = (newEpoch & 0xFF00) >> 8;
+            uint8_t lsb = (newEpoch & 0x00FF);
+            EEPROM.write(EPOCH_ADDRESS_MSB, msb);
+            EEPROM.write(EPOCH_ADDRESS_LSB, lsb);
+        }
+          
+        uint16_t Manager::getAndIncrementEpoch() {
+            uint8_t msb = EEPROM.read(EPOCH_ADDRESS_MSB);
+            uint8_t lsb = EEPROM.read(EPOCH_ADDRESS_LSB);
+            uint32_t epoch_tmp = msb;
+            epoch_tmp <<= 8;
+            epoch_tmp += lsb;
+            epoch_tmp += 1;
+            setEpoch(epoch);
+            return epoch;
+        }
+
+        void Manager::writeln(const String& line) {
+            if (enableEcho) {
+                serialEcho << F("LOG: ") << linePrefix.c_str() << millis() << "," << line.c_str() << endl;
+            }
+            if (fileStream.is_open()) {
+                fileStream << linePrefix.c_str() << millis() << "," << line.c_str() << endl;
+                fileStream.flush();
+            }
+        }
+      
+        String Manager::getLogString() const {
+            String logStr(getState());
+            logStr.concat(",");
+            logStr.concat(getFreeSpace());
+            return logStr;        
+        }
+
+        // Manager& Manager::operator << (const String& str) {
+        //     return *this;
+        // }
+        
+
+          
     }
 
 }

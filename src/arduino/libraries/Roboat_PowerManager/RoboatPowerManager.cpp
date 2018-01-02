@@ -96,19 +96,19 @@ namespace Roboat {
             }
         }
 
-        float Manager::getVoltage() {
+        float Manager::getVoltage() const {
             return voltage;
         }
 
-        float Manager::getCurrent() {
+        float Manager::getCurrent() const {
             return current;
         }
 
-        float Manager::getPower() {
+        float Manager::getPower() const {
             return (voltage * current / 1000);
         }
 
-        const char* Manager::getStateName(const State aState) {
+        const char* Manager::getStateName(const State aState) const {
             switch (aState) {
                 case STARTUP:
                     return "STARTUP";
@@ -128,6 +128,15 @@ namespace Roboat {
                 default:
                     return "<INVALID>";
             }
+        }
+
+        String Manager::getLogString() const {
+            String logStr(getState());
+            logStr.concat(",");
+            logStr.concat(String(getVoltage(), 8));
+            logStr.concat(",");
+            logStr.concat(String(getCurrent(), 8));        
+            return logStr;
         }
     }
 

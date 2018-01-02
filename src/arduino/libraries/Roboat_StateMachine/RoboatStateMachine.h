@@ -27,12 +27,12 @@ namespace Roboat {
         bool advance(const uint32_t now);
         
         // The time spent so far in the current state (in us).
-        uint32_t getTimeInState();
+        uint32_t getTimeInState() const;
         
         // The current state.
-        StateEnum getState();
+        StateEnum getState() const;
         
-        const char * getStateName(const StateEnum aState);        
+        const char * getStateName(const StateEnum aState) const;
     };
 
     template<typename StateEnum, typename MachineC>
@@ -55,12 +55,12 @@ namespace Roboat {
     }
 
     template<typename StateEnum, typename MachineC>
-    uint32_t StateMachine<StateEnum, MachineC>::getTimeInState() {
+    uint32_t StateMachine<StateEnum, MachineC>::getTimeInState() const {
         return lastUpdateTime-stateEntryTime;
     }
 
     template<typename StateEnum, typename MachineC>
-    StateEnum StateMachine<StateEnum, MachineC>::getState() {
+    StateEnum StateMachine<StateEnum, MachineC>::getState() const {
         return state;
     }
 
@@ -87,8 +87,8 @@ namespace Roboat {
     }
 
     template<typename StateEnum, typename MachineC>
-    const char * StateMachine<StateEnum, MachineC>::getStateName(const StateEnum aState) {
-        return static_cast<MachineC*>(this)->getStateName(aState);
+    const char * StateMachine<StateEnum, MachineC>::getStateName(const StateEnum aState) const {
+        return static_cast<const MachineC*>(this)->getStateName(aState);
     }
 
 }

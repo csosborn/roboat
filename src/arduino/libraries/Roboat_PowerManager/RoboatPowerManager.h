@@ -43,11 +43,13 @@ namespace Roboat {
                 i2c_t3& ina219Wire, int ina219Address);
             
             bool update();
-            const char * getStateName(const State aState);
+            const char * getStateName(const State aState) const;
     
-            float getVoltage();
-            float getCurrent();
-            float getPower();
+            float getVoltage() const;
+            float getCurrent() const;
+            float getPower() const;
+
+            String getLogString() const;
     
         };
             
