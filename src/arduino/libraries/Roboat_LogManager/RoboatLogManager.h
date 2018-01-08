@@ -31,8 +31,8 @@ namespace Roboat {
             uint16_t epoch;
             bool enableEcho;
             
-            String linePrefix;
-            String fileName;
+            const String linePrefix;
+            const String fileName;
             ofstream fileStream;
             
             ostream &serialEcho;

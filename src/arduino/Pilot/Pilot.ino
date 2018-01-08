@@ -1,8 +1,8 @@
 #include <RoboatPowerManager.h>
 #include <RoboatLogManager.h>
 #include <RoboatAHRS.h>
+#include <RoboatGPSManager.h>
 
-#include <TinyGPS++.h>
 #include <SafetyPin.h>
 #include <SPI.h>
 #include <i2c_t3.h>
@@ -42,31 +42,24 @@ PwmOut rightDrive2(29);
 PwmOut leftDrive1(35);
 PwmOut leftDrive2(36);
 
-// IMU (via I2C, on the "Wire" interface)
+// IMU (via I2C on the "Wire" interface)
 auto &imuI2CWire(Wire);
 DigitalOut imuReset(17);
-DigitalIn imuAI1(6);
-DigitalIn imuAI2(5);
-DigitalIn imuGI1(8);
-DigitalIn imuGI2(7);
+DigitalIn imuAI1(6), imuAI2(5), imuGI1(8), imuGI2(7);
 Roboat::IMU::AHRS ahrs(imuReset);
 
-
-// Power monitor (via I2C, on the "Wire1" interface)
+// Power monitor (via I2C on the "Wire1" interface)
 auto &powerSenseI2CWire(Wire1);
 
 // Battery Charger
-// all three of the charger status inputs are open-drain, so enable pullups to differentiate
-// between low and hi-Z states.
-DigitalIn batteryChargerPG(23, true);
-DigitalIn batteryChargerStat1(21, true);
-DigitalIn batteryChargerStat2(22, true);
+// (all three of the charger status inputs are open-drain, so enable pullups to differentiate between low and hi-Z states)
+DigitalIn chargerPG(23, true), chargerStat1(21, true), chargerStat2(22, true);
 
-Roboat::Power::Manager powerManager(batteryChargerPG, batteryChargerStat1, batteryChargerStat2, powerSenseI2CWire, INA219_ADDRESS);
+// Power manager state machine, communicating with INA219 I/V sensor and battery charger
+Roboat::Power::Manager powerManager(chargerPG, chargerStat1, chargerStat2, powerSenseI2CWire, INA219_ADDRESS);
 
-// Serial connection to GPS receiver
-auto &gpsSerial(Serial1);
-const int GPS_SERIAL_BAUD = 9600;
+// GPS manager state machine, communicating with GPS hardware on Serial1
+Roboat::GPS::Manager gpsManager(Serial1);
 
 // Serial connection to Raspberry Pi
 auto &rpiSerial(Serial2);
@@ -78,14 +71,6 @@ ArduinoOutStream rpiOut(rpiSerial);
 // Other Globals
 ///////////////////////////////////////////////////////////////////
 
-// GPS Parser
-TinyGPSPlus gps;
-
-//BoatLog *boatLog = NULL;
-
-// Logged status values
-bool gpsFixValid = false;
-uint32_t gpsFixAge = 0;
 uint32_t maxLoopTime = 0;
 
 
@@ -114,9 +99,6 @@ void setup() {
 
   debugOut << F("Disabling RPi boot trigger.") << endl;
   rpiBootTrigger.high();
-
-  debugOut << F("Configuring GPS serial port for ") << GPS_SERIAL_BAUD << F(" baud.") << endl;
-  gpsSerial.begin(GPS_SERIAL_BAUD);
 
   debugOut << F("Configuring RPi serial port for ") << RPI_SERIAL_BAUD << F(" baud.") << endl;
   rpiSerial.begin(RPI_SERIAL_BAUD);
@@ -148,9 +130,11 @@ void loop() {
   }
   lastLoopStartTime = currentMicros;
 
+  // Advance all subsystem state machines.
   ahrs.advance(currentMicros);
   powerManager.advance(currentMicros);
   logManager.advance(currentMicros);
+  gpsManager.advance(currentMicros);
 
   if (currentMicros >= nextLogTime) {
     onboardLed.high();
@@ -160,24 +144,14 @@ void loop() {
     logLine.concat(",");
     logLine.concat(int(navPowerEnable.read()));
     
-    if (gpsFixValid) {
-      logLine.concat(",1,");
-      logLine.concat(String(gps.location.lat(), 12));
-      logLine.concat(",");
-      logLine.concat(String(gps.location.lng(), 12));
-      logLine.concat(",");
-    } else {
-      logLine.concat(",0,0,0,");
-    }
-    logLine.concat(int(gps.satellites.value()));
-    logLine.concat(",");
-    logLine.concat(int(gpsFixAge));
-
     logLine.concat(",");
     logLine.concat(logManager.getLogString());
     
     logLine.concat(",");
     logLine.concat(powerManager.getLogString());
+
+    logLine.concat(",");
+    logLine.concat(gpsManager.getLogString());
 
     logLine.concat(",");
     logLine.concat(ahrs.getLogString());
@@ -192,22 +166,4 @@ void loop() {
     onboardLed.low();
   }
 
-
-  // Feed any new GPS data into the parser.
-  if (gpsSerial.available() > 0) {
-    while (gpsSerial.available() > 0) {
-      gps.encode(gpsSerial.read());
-    }
-
-    gpsFixValid = gps.location.isValid();
-    gpsFixAge = gps.location.age();
-
-//    if (gpsFixValid) {
-//      if (gps.location.isUpdated()) {
-//        debugOut << int(gps.location.age()) << "ms  " << int(gps.time.hour()) << ":" << int(gps.time.minute()) << ":" << int(gps.time.second())
-//                 << "  (" << setprecision(8) << gps.location.lat() << ", " << gps.location.lng() << ") : " << setprecision(3) << gps.speed.mph() << "mph" << endl;
-//      }
-//    }
-
-  }
 }
