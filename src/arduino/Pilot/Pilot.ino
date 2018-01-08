@@ -1,3 +1,5 @@
+#include <RoboatCaptain.h>
+#include <RoboatHelm.h>
 #include <RoboatPowerManager.h>
 #include <RoboatLogManager.h>
 #include <RoboatAHRS.h>
@@ -7,46 +9,23 @@
 #include <SPI.h>
 #include <i2c_t3.h>
 
-// Debug (USB) serial connection
-auto &debugSerial(Serial);
-const int DEBUG_SERIAL_BAUD = 115200;
-ArduinoOutStream debugOut(debugSerial);
-
-Roboat::Log::Manager logManager(debugOut);
-
-
-uint32_t nextLogTime;
-static uint32_t logInterval = 1e6;  // 1 full second
-uint32_t statusBlinkEndTime = 0;
-uint32_t lastLoopStartTime;
-
 
 
 ///////////////////////////////////////////////////////////////////
 // Pin and Interface Assignments
 ///////////////////////////////////////////////////////////////////
 
+// Debug (USB) serial connection
+auto &debugSerial(Serial);
+const int DEBUG_SERIAL_BAUD = 115200;
+ArduinoOutStream debugOut(debugSerial);
+
 DigitalOut onboardLed(LED_BUILTIN);
-DigitalOut rpiBootTrigger(26);  // trigger for triggering RPi boot when it is idle
 
 // Subsystem Enables
 DigitalOut drivePowerEnable(24);     // enable the motor drives
 DigitalOut navPowerEnable(32);       // enable 3.3v power to the IMU and GPS
 DigitalOut navLightCommsEnable(39);   // enable communications to the navigation lights
-
-// Right Thruster
-PwmOut rightDrive1(30);
-PwmOut rightDrive2(29);
-
-// Left Thruster
-PwmOut leftDrive1(35);
-PwmOut leftDrive2(36);
-
-// IMU (via I2C on the "Wire" interface)
-auto &imuI2CWire(Wire);
-DigitalOut imuReset(17);
-DigitalIn imuAI1(6), imuAI2(5), imuGI1(8), imuGI2(7);
-Roboat::IMU::AHRS ahrs(imuReset);
 
 // Power monitor (via I2C on the "Wire1" interface)
 auto &powerSenseI2CWire(Wire1);
@@ -55,22 +34,70 @@ auto &powerSenseI2CWire(Wire1);
 // (all three of the charger status inputs are open-drain, so enable pullups to differentiate between low and hi-Z states)
 DigitalIn chargerPG(23, true), chargerStat1(21, true), chargerStat2(22, true);
 
-// Power manager state machine, communicating with INA219 I/V sensor and battery charger
+// Thrusters
+PwmOut rightDrive1(30), rightDrive2(29), leftDrive1(35), leftDrive2(36);
+
+// IMU (via I2C on the "Wire" interface, plus reset and interrupts)
+auto &imuI2CWire(Wire);
+DigitalOut imuReset(17);
+DigitalIn imuAI1(6), imuAI2(5), imuGI1(8), imuGI2(7);
+
+// Serial connection to Raspberry Pi
+auto &rpiSerial(Serial2);
+DigitalOut rpiBootTrigger(26);  // trigger for triggering RPi boot when it is idle
+
+
+///////////////////////////////////////////////////////////////////
+// Departments
+///////////////////////////////////////////////////////////////////
+
+
+// --------------
+// The Conn
+// --------------
+
+// Operations and status logging
+Roboat::Log::Manager logManager(debugOut);
+
+// Helm
+Roboat::Conn::Helm helm;
+
+// Captain
+Roboat::Conn::Captain captain(rpiSerial, rpiBootTrigger);
+
+
+// ----------------
+// Power Management
+// ----------------
+
 Roboat::Power::Manager powerManager(chargerPG, chargerStat1, chargerStat2, powerSenseI2CWire, INA219_ADDRESS);
+
+
+// ----------
+// Navigation
+// ----------
+
+// Attitude and heading reference
+Roboat::IMU::AHRS ahrs(imuReset);
 
 // GPS manager state machine, communicating with GPS hardware on Serial1
 Roboat::GPS::Manager gpsManager(Serial1);
 
-// Serial connection to Raspberry Pi
-auto &rpiSerial(Serial2);
-const int RPI_SERIAL_BAUD = 115200;
-ArduinoOutStream rpiOut(rpiSerial);
+
+// ----------------
+// Propulsion
+// ----------------
+
 
 
 ///////////////////////////////////////////////////////////////////
 // Other Globals
 ///////////////////////////////////////////////////////////////////
 
+uint32_t nextLogTime;
+static uint32_t logInterval = 1e6;  // 1 full second
+uint32_t statusBlinkEndTime = 0;
+uint32_t lastLoopStartTime;
 uint32_t maxLoopTime = 0;
 
 
@@ -96,12 +123,6 @@ void setup() {
   drivePowerEnable.low();
   navPowerEnable.low();
   navLightCommsEnable.low();
-
-  debugOut << F("Disabling RPi boot trigger.") << endl;
-  rpiBootTrigger.high();
-
-  debugOut << F("Configuring RPi serial port for ") << RPI_SERIAL_BAUD << F(" baud.") << endl;
-  rpiSerial.begin(RPI_SERIAL_BAUD);
 
   debugOut << F("Enabling nav power...") << endl;
   navPowerEnable.high();
@@ -131,9 +152,10 @@ void loop() {
   lastLoopStartTime = currentMicros;
 
   // Advance all subsystem state machines.
-  ahrs.advance(currentMicros);
-  powerManager.advance(currentMicros);
   logManager.advance(currentMicros);
+  captain.advance(currentMicros);
+  powerManager.advance(currentMicros);
+  ahrs.advance(currentMicros);
   gpsManager.advance(currentMicros);
 
   if (currentMicros >= nextLogTime) {
@@ -146,7 +168,10 @@ void loop() {
     
     logLine.concat(",");
     logLine.concat(logManager.getLogString());
-    
+
+    logLine.concat(",");
+    logLine.concat(captain.getLogString());
+
     logLine.concat(",");
     logLine.concat(powerManager.getLogString());
 
