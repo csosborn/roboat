@@ -44,6 +44,7 @@ DigitalIn imuAI1(6), imuAI2(5), imuGI1(8), imuGI2(7);
 
 // Serial connection to Raspberry Pi
 auto &rpiSerial(Serial2);
+ArduinoOutStream rpiOut(rpiSerial);
 DigitalOut rpiBootTrigger(26);  // trigger for triggering RPi boot when it is idle
 
 
@@ -57,7 +58,7 @@ DigitalOut rpiBootTrigger(26);  // trigger for triggering RPi boot when it is id
 // --------------
 
 // Operations and status logging
-Roboat::Log::Manager logManager(debugOut);
+Roboat::Log::Manager logManager(rpiOut);
 
 // Helm
 Roboat::Conn::Helm helm;

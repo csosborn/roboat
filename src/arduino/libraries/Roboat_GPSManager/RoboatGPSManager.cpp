@@ -8,7 +8,7 @@ namespace Roboat {
         const uint32_t ERROR_RESET_DELAY = 10e6;
 
         // time after which a fix is considered stale
-        const uint32_t MAX_FIX_AGE = 3;     // three seconds
+        const uint32_t MAX_FIX_AGE = 3000;     // three seconds
 
         const int GPS_SERIAL_BAUD = 9600;
                 
@@ -96,7 +96,7 @@ namespace Roboat {
             } else {
                 logStr.concat("0,0,");
             }
-            logStr.concat(satsUsed);
+            logStr.concat(int(satsUsed));
             logStr.concat(",");
             logStr.concat(fixAge);
 

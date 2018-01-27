@@ -20,7 +20,7 @@ namespace Roboat {
             cardSize(0),
             freeSpace(0),
             epoch(getAndIncrementEpoch()),
-            enableEcho(false),
+            enableEcho(true),
             linePrefix(String(getEpoch()) + ","),
             fileName(String("Log_").concat(getEpoch()).concat(".csv")),
             serialEcho(serialEcho)            
@@ -114,8 +114,8 @@ namespace Roboat {
             epoch_tmp <<= 8;
             epoch_tmp += lsb;
             epoch_tmp += 1;
-            setEpoch(epoch);
-            return epoch;
+            setEpoch(epoch_tmp);
+            return epoch_tmp;
         }
 
         void Manager::writeln(const String& line) {

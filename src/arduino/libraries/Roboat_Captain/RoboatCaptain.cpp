@@ -50,6 +50,10 @@ namespace Roboat {
                     wakeSignal.low();
                     // TODO: wait for ready signal on serial port indicating
                     // RPI is up and running
+                    if (port.available() > 0) {
+                        // captain is awake
+                        goToState(ONDECK);
+                    }
                     break;
                 
                 case ONDECK:

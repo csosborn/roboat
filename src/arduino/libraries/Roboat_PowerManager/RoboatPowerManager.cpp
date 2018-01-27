@@ -114,6 +114,8 @@ namespace Roboat {
                     return "STARTUP";
                 case ERROR:
                     return "ERROR";
+                case ERROR_BATT_TEMP:
+                    return "ERROR_BATT_TEMP";
                 case ACTIVATING:
                     return "ACTIVATING";
                 case NO_BATTERY:
