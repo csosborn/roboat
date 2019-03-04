@@ -1,6 +1,7 @@
 
-add_executable(captain main.cc HelmConnection.cc)
+add_executable(captain main.cc HelmConnection.cc SQLite3Helpers.cc)
 target_link_libraries(captain PUBLIC
-    boost::boost
-    spdlog::spdlog
-    fmt::fmt)
+    CONAN_PKG::boost
+    CONAN_PKG::spdlog
+    CONAN_PKG::fmt
+    CONAN_PKG::sqlite3)

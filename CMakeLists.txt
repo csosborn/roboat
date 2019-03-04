@@ -28,12 +28,8 @@ set(VISIBILITY_INLINES_HIDDEN TRUE)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake/modules)
 
-include(${CMAKE_BINARY_DIR}/conan_paths.cmake)
-
-find_package(boost REQUIRED)
-find_package(fmt REQUIRED NO_MODULE)
-find_package(jsonformoderncpp REQUIRED)
-find_package(spdlog REQUIRED NO_MODULE)
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup(TARGETS)
 
 # Main project
 add_subdirectory(src)
