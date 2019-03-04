@@ -1,5 +1,6 @@
 #include "HelmConnection.hpp"
 #include <iostream>
+#include <spdlog/spdlog.h>
 
 namespace roboat {
 namespace helm {
