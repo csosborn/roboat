@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
       start_time TEXT NOT NULL,
       end_time TEXT DEFAULT NULL);
     )QUERY");
-  if (sqlite3_step(createStmt) == SQLITE_DONE) {
+  if (createStmt.step() == SQLITE_DONE) {
     console->debug("Run table exists.");
   } else {
     console->error("Did not create run table.");
@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
     INSERT INTO run (start_time, end_time)
     VALUES(DATETIME('now'), NULL);
   )QUERY");
-  if (sqlite3_step(insertStmt) == SQLITE_DONE) {
+  if (insertStmt.step() == SQLITE_DONE) {
     currRunId = sqlite3_last_insert_rowid(roboatDb);
     console->debug("Inserted new run record ({}).", currRunId);
 
@@ -140,10 +140,10 @@ int main(int argc, char **argv) {
   auto updateStmt = roboatDb.prepare(
       "UPDATE run SET end_time=DATETIME('now') WHERE run_id==?;");
   updateStmt.bind(1, currRunId);
-  if (sqlite3_step(updateStmt) == SQLITE_DONE) {
+  if (updateStmt.step() == SQLITE_DONE) {
     console->info("Updated end time for run {}.", currRunId);
   } else {
-    console->warn("Update failed: {}", sqlite3_errmsg(roboatDb));
+    console->warn("Update failed: {}", roboatDb.errorMessage());
   }
 
   // Shut down the IO context and thread pool.

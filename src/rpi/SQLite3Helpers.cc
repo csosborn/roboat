@@ -1,4 +1,5 @@
 #include "SQLite3Helpers.hpp"
+#include "fmt/format.h"
 
 SQLite3Environment::SQLite3Environment() {
   if (SQLITE_OK != sqlite3_initialize()) {
@@ -12,22 +13,38 @@ SQLite3Environment::~SQLite3Environment() {
 }
 
 SQLite3Statement::SQLite3Statement(SQLite3Db &db, const std::string &query)
-    : statement(NULL) {
+    : statement_(NULL), db_(db) {
   auto res =
-      sqlite3_prepare_v3(db, query.c_str(), query.size(), 0, &statement, NULL);
+      sqlite3_prepare_v3(db, query.c_str(), query.size(), 0, &statement_, NULL);
   if (res != SQLITE_OK) {
-    throw std::runtime_error(std::string("Could not prepare statement: ") +
-                             sqlite3_errmsg(db));
+    throw std::runtime_error(
+        fmt::format("Could not prepare statement: {}", db_.errorMessage()));
   }
 }
 
-SQLite3Statement::~SQLite3Statement() { sqlite3_finalize(statement); }
+SQLite3Statement::~SQLite3Statement() { sqlite3_finalize(statement_); }
 
 void SQLite3Statement::bind(int placeHolderNum, int value) {
-  if (sqlite3_bind_int(statement, placeHolderNum, value) != SQLITE_OK) {
+  if (sqlite3_bind_int(statement_, placeHolderNum, value) != SQLITE_OK) {
     throw std::runtime_error(
         "Failed to bind integer value in prepared statement.");
   }
+}
+
+int SQLite3Statement::step() {
+  int ret = sqlite3_step(statement_);
+  switch (ret) {
+  case SQLITE_DONE:
+    sqlite3_reset(statement_);
+    break;
+  case SQLITE_MISUSE:
+    throw std::runtime_error(
+        fmt::format("Misuse of prepared statement: {}", db_.errorMessage()));
+    break;
+  default:
+    break;
+  }
+  return ret;
 }
 
 SQLite3Db::SQLite3Db(const std::string dbFileName) : pDb(NULL) {
@@ -50,4 +67,8 @@ SQLite3Db::~SQLite3Db() {
 
 SQLite3Statement SQLite3Db::prepare(const std::string &query) {
   return SQLite3Statement(*this, query);
+}
+
+std::string SQLite3Db::errorMessage() {
+  return std::string(sqlite3_errmsg(pDb));
 }
