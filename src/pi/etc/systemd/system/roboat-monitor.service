@@ -1,0 +1,13 @@
+[Unit]
+Description=Roboat data collection/monitor daemon
+Requires=roboat-tig.service
+After=roboat-tig.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/csosborn/roboat/src/pi/monitor
+ExecStart=/home/csosborn/roboat/src/pi/monitor/monitor.venv/bin/python main.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

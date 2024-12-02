@@ -1,0 +1,14 @@
+[Unit]
+Description=Docker Compose service for Roboat Telegraf/Influx/Grafana stack
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/csosborn/roboat/src/pi/TIG
+ExecStart=/usr/bin/docker-compose up --detach
+ExecStop=/usr/bin/docker-compose down
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

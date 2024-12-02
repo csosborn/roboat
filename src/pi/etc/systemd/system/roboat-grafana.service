@@ -1,0 +1,14 @@
+[Unit]
+Description=Docker Compose service for Grafana portion of Roboat TIG stack
+Requires=roboat-tig.service
+After=roboat-tig.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/csosborn/roboat/src/pi/TIG
+ExecStart=/usr/bin/docker-compose --profile interactive up --detach
+ExecStop=/usr/bin/docker-compose --profile interactive down
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

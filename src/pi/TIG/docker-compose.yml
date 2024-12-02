@@ -36,22 +36,24 @@ services:
     ports:
       - '8086:8086'
 
-  # grafana:
-  #   image: grafana/grafana
-  #   container_name: grafana-server
-  #   restart: 'no'
-  #   depends_on:
-  #     - influxdb
-  #   env_file:
-  #     - grafana.env
-  #   links:
-  #     - influxdb
-  #   ports:
-  #     - '3000:3000'
-  #   volumes:
-  #     - grafana_data:/var/lib/grafana
+  grafana:
+    image: grafana/grafana
+    container_name: grafana-server
+    restart: 'no'
+    depends_on:
+      - influxdb
+    env_file:
+      - grafana.env
+    links:
+      - influxdb
+    ports:
+      - '3000:3000'
+    volumes:
+      - grafana_data:/var/lib/grafana
+    profiles: 
+      - interactive
 
 
 volumes:
-  # grafana_data: {}
+  grafana_data: {}
   influxdb_data: {}
