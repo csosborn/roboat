@@ -2,7 +2,8 @@ import re
 
 class VictronMPPT:
 
-    def __init__(self):
+    def __init__(self, uart):
+        self.uart_ = uart
         self.active = False
         self.fields_ = {}
         self.epoch = 0
@@ -15,11 +16,20 @@ class VictronMPPT:
         self.yield_total_kwh = 0
         self.error = 0
 
-    def update(self, mppt_str):
+
+    def update(self):
+        mppt_line = self.uart_.readline()
+        if mppt_line:
+            try:
+                self.update_str(mppt_line.decode("ascii", "ignore"))
+            except UnicodeError as e:
+                pass
+
+
+    def update_str(self, mppt_str):
         match = re.search("^([\w\#]+)\s([\w\.\-]+)\s+?$", mppt_str)
         if match:
             self.fields_[match.group(1)] = match.group(2)
-            # print("{}={}".format(match.group(1), match.group(2)))
             key = match.group(1)
             val = match.group(2)
             if key == "VPV":
@@ -42,27 +52,4 @@ class VictronMPPT:
             if key == 'HSDS':
                 self.active = True
                 self.epoch = self.epoch + 1
-
-        # {
-        #     'PID': '0xA074', 
-        #     'SER#': 'HQ2245QWPH7', 
-        #     # 'MPPT': '0', 
-        #     # 'PPV': '0', 
-        #     'OR': '0x00000001', 
-        #     # 'VPV': '10', 
-        #     'H19': '133', 
-        #     'LOAD': 'ON', 
-        #     # 'I': '-370', 
-        #     # 'IL': '300', 
-        #     'H22': '15', 
-        #     # 'V': '13010', 
-        #     'H20': '0', 
-        #     'CS': '0', 
-        #     'H21': '0', 
-        #     'H23': '87', 
-        #     'HSDS': '81', 
-        #     'FW': '164', 
-        #     # 'ERR': '0'
-        # }
             
-
