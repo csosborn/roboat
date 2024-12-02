@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: upysm
+Version: 0.3.11
+Summary: Versatile and flexible Python State Machine library - Micropython Port
+Home-page: https://github.com/pgularski/pysm
+Author: Piotr Gularski
+Author-email: piotr.gularski@gmail.com
+License: MIT
+Requires-Dist: micropython-collections.deque
+Requires-Dist: micropython-collections.defaultdict
+Requires-Dist: micropython-logging
+
