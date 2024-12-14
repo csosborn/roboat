@@ -28,3 +28,9 @@
 [submodule "src/arduino/libraries/Adafruit_AHRS"]
 	path = take1/src/arduino/libraries/Adafruit_AHRS
 	url = https://github.com/adafruit/Adafruit_AHRS.git
+[submodule "src/micro/external/micropython"]
+	path = src/micro/external/micropython
+	url = https://github.com/micropython/micropython.git
+[submodule "src/micro/external/micropython-ulab"]
+	path = src/micro/external/micropython-ulab
+	url = https://github.com/v923z/micropython-ulab
