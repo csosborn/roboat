@@ -1,6 +1,8 @@
-from machine import Pin, UART, I2C, WDT
+from machine import Pin, UART, I2C, PWM, WDT
 from neopixel import NeoPixel
 from roboat_fsm import *
+from battery_model import BatteryModel
+from soc_estimator import LFPSoCEstimator
 
 import time
 import json
@@ -22,7 +24,11 @@ np = NeoPixel(np_pin, 1)
 pi_power = Pin(11, Pin.OUT)
 drive_power = Pin(7, Pin.OUT)
 
-roboat = RoboatSM(neopixel =np, pi_power_pin = pi_power, drive_power_pin = drive_power)
+# ESC PWM control
+esc = PWM(Pin(8), freq=50)
+esc.duty_ns(10)
+
+roboat = RoboatSM(neopixel =np, pi_power_pin = pi_power, drive_power_pin = drive_power, drive_pwm = esc)
 
 imu_i2c = I2C(0, scl=Pin(13), sda=Pin(12), freq=400_000)
 ina260_i2c = I2C(1, scl=Pin(3), sda=Pin(2), freq=400_000)
@@ -39,6 +45,9 @@ mppt_uart = UART(1, baudrate=19200, tx=Pin(8), rx=Pin(9))
 # that all sensor data reaches it eventually.
 pi_link = PiLink(rpi_uart)
 
+battery = BatteryModel(nominal_v = 12.8, nominal_ah = 20)
+soc_estimator = LFPSoCEstimator()
+
 mppt = VictronMPPT(mppt_uart)
 mppt_epoch = -1
 
@@ -47,8 +56,6 @@ ina260_i = 0
 ina260_p = 0
 ina260_dcharge = 0
 last_ticks = time.ticks_ms()
-
-# fsm = StateMachine()
 
 def monitor_power():
     global last_ticks
@@ -66,7 +73,7 @@ def monitor_power():
         ina260_p = ina.power
         ina260_dcharge = (
             ina260_dcharge + ina260_i * dt_ms / 1000.0
-        )  # amp*S = amps * dt in seconds
+        )
 
         pi_link.send_update("ina260", {
             "logic_p": ina260_p,
@@ -95,6 +102,15 @@ def monitor_power():
             "mppt_total_kwh": mppt.yield_total_kwh
         })
         mppt_epoch = mppt.epoch
+        soc_estimator.update(mppt.battery_volts, mppt.battery_amps, 20)
+        if battery.update(now, mppt.battery_volts, mppt.battery_amps):
+            pi_link.send_update("battery", {
+                "cap": battery.capacity_est_/3600.0,
+                "cap_min": battery.cap_est_min_/3600.0,
+                "cap_max": battery.cap_est_max_/3600.0,
+                "soc": soc_estimator.soc
+            })
+            print(soc_estimator.soc)
         if mppt.battery_volts > 12.5:
             roboat.dispatch(MAIN_POWER_UP)
         else:
@@ -169,6 +185,11 @@ tick_timer.init(period=1000, mode=Timer.PERIODIC, callback=tick_loop)
 start_pi_timer = Timer()
 start_pi_timer.init(period=10000, mode=Timer.PERIODIC, callback=lambda t: roboat.dispatch(START_PI))
 
+# start_drive_timer = Timer()
+# start_drive_timer.init(period=100000, mode=Timer.ONE_SHOT, callback=lambda t: roboat.dispatch('start_drive'))
+
+
 while True:
     monitor_power()
+
 

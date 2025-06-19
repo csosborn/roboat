@@ -83,7 +83,18 @@ if __name__ == "__main__":
                             # "time": 1
                         }
                         write_api.write(bucket, org, dictionary)
-
+                    elif data['src'] == "battery":
+                        dictionary = {
+                            "measurement": "battery",
+                            "fields": {
+                                "cap_ah": data["cap"],
+                                "cap_ah_max": data["cap_max"],
+                                "cap_ah_min": data["cap_min"],
+                                "soc": float(data["soc"])
+                            }
+                        }
+                        print(dictionary)
+                        write_api.write(bucket, org, dictionary)
                 else:
                     buf += one_char
         
