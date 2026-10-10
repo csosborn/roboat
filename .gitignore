@@ -1,7 +1,30 @@
+# OS / editor
 .DS_Store
+.vscode/
 **/*.s#*
-.vscodedesktop
-src/desktop
-roboat-cockpit
-roboat-console
-build
+
+# Build output
+build/
+dist/
+
+# Python
+venv/
+.venv/
+*.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+
+# Secrets (commit *.env.example templates instead)
+*.env
+.env
+
+# KiCad backups, caches, and per-user project state
+*-backups/
+fp-info-cache
+*.kicad_prl
+*.lck
