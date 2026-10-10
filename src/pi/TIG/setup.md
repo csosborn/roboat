@@ -37,3 +37,15 @@ In /boot/firmware/config.txt:
 enable_uart=1
 dtoverlay=uart3
 ```
+
+## Configure Secrets
+
+Credentials live in `*.env` files in this directory, which are gitignored. Create each one from its template and fill in real values:
+
+```
+cp telegraf.env.example telegraf.env
+cp influxdb.env.example influxdb.env
+cp grafana.env.example grafana.env
+```
+
+`INFLUX_TOKEN` in `telegraf.env` is shared by Telegraf and by the monitor service (`roboat-monitor.service` loads it via `EnvironmentFile`), so the token needs write access to both the `compute` and `roboat_01` buckets.

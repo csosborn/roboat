@@ -1,5 +1,7 @@
 from serial import Serial
 import json
+import os
+import sys
 import time
 
 import influxdb_client
@@ -9,9 +11,10 @@ import gpsd
 
 bucket = "roboat_01"
 org = "CSO"
-token = "TIGyIXb1Q1Otd_R2VMXzE7vLKpVHAFmchxwyB3-Opr1jFBRSP1IVGQKKFXNm1GBZEOBqmzF3H1oA0R3Z-PqIHA=="
-# Store the URL of your InfluxDB instance
-url="http://localhost:8086"
+url = os.environ.get("INFLUX_URL", "http://localhost:8086")
+token = os.environ.get("INFLUX_TOKEN")
+if not token:
+    sys.exit("INFLUX_TOKEN is not set; see src/pi/TIG/telegraf.env.example")
 
 gps_interval_ns = 1e9
 gps_connect_needed = True
