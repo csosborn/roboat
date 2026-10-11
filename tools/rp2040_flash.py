@@ -11,6 +11,8 @@ Runs on the Pi, which the RP2040 is attached to over USB.
    files a previous deploy shipped that are no longer part of the firmware,
    record the manifest, and reset the board.
 4. Wait for the new firmware's boot status message in the monitor's journal.
+   With --reset-delay, the reset is instead left to run on the board after a
+   delay, so the Pi can shut down first (see pi_apply.sh --flash-halt).
 
 If anything fails before step 3, the files on the board are unchanged.
 """
@@ -184,6 +186,9 @@ def wait_for_boot(version, since):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--version', required=True, help='commit being deployed')
+    parser.add_argument('--reset-delay', type=int, metavar='SECONDS',
+                        help='reset the board this long after flashing instead of now, '
+                             'and skip the boot check')
     args = parser.parse_args()
 
     files = firmware_files(args.version)
@@ -219,6 +224,11 @@ def main():
             print('Removed from the board: ' + ', '.join(stale))
 
         since = time.strftime('%Y-%m-%d %H:%M:%S')
+        if args.reset_delay:
+            repl.start('import time, machine\ntime.sleep({})\nmachine.reset()'
+                       .format(args.reset_delay))
+            print('The board resets itself in {} s.'.format(args.reset_delay))
+            return 0
         repl.start('import machine\nmachine.reset()')
     finally:
         repl.close()

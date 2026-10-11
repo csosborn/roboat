@@ -113,6 +113,10 @@ def run():
     roboat = RoboatSM(neopixel=np, pi_power_pin=pi_power, drive_power_pin=drive_power,
                       drive_pwm=esc, schedule=schedule, on_pi_power_on=on_pi_power_on,
                       record_pi_power=power_policy.ChoiceRecorder())
+    if pi_power.value():
+        # The Pi may be booting now too (the relay drops while this board
+        # resets), so it may have missed our USB attach.
+        on_pi_power_on()
 
     monitor = PowerMonitor(make_ina, VictronMPPT(mppt_uart), pi_link,
                            BatteryModel(nominal_v=12.8, nominal_ah=20), LFPSoCEstimator(),
