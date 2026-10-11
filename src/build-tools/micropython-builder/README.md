@@ -4,7 +4,7 @@ The Roboat uses a custom build of the MicroPython firmware, primarily to include
 
 Build docker container, and label it `micropython-builder`:
 ```
-build -t micropython-builder src/build-tools/micropython-builder
+docker build -t micropython-builder src/build-tools/micropython-builder
 ```
 
 Run `micropython-builder` with a volume called `build`, which should start empty and will receive the build products:
