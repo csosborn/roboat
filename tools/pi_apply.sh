@@ -10,6 +10,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+PI_LINK_PORT=/dev/ttyAMA3
+
 old=$1
 new=$2
 flash=${3:-}
@@ -59,14 +61,21 @@ if [ "$flash" != --no-flash ] && { [ "$flash" = --flash ] || [ "$flash" = --flas
         python3 -m venv "$tools_venv"
         "$tools_venv/bin/pip" install -q -r tools/requirements-pi.txt
     fi
-    echo "Flashing the RP2040"
+    flash_args=(--version "$(git rev-parse --short=12 "$new")")
+    [ "$flash" = --flash-halt ] && flash_args+=(--reset-delay 60)
+    echo "Flashing the RP2040 over the serial link"
+    status=0
+    "$tools_venv/bin/python" tools/rp2040_flash.py "${flash_args[@]}" --serial "$PI_LINK_PORT" || status=$?
+    if [ $status -ne 0 ] && [ $status -ne 3 ]; then
+        # Firmware older than the serial deploy support ignores the request.
+        echo "Serial flash failed; trying USB"
+        "$tools_venv/bin/python" tools/rp2040_flash.py "${flash_args[@]}"
+    elif [ $status -eq 3 ]; then
+        exit 3
+    fi
     if [ "$flash" = --flash-halt ]; then
-        "$tools_venv/bin/python" tools/rp2040_flash.py --version "$(git rev-parse --short=12 "$new")" \
-            --reset-delay 60
         echo "Shutting the Pi down; the RP2040's reset should power it back up."
         sudo systemd-run --quiet --on-active=3 /usr/bin/systemctl poweroff
-    else
-        "$tools_venv/bin/python" tools/rp2040_flash.py --version "$(git rev-parse --short=12 "$new")"
     fi
 elif changed src/micro; then
     echo "RP2040 files changed but --no-flash was given; the board is still running the old firmware."

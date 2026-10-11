@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Flash the RP2040's MicroPython files from this checkout.
 
-Runs on the Pi, which the RP2040 is attached to over USB.
+Runs on the Pi, which reaches the RP2040 over USB or, with --serial, over the
+serial link that also carries telemetry.
 
-1. Interrupt the running firmware and enter the raw REPL. Current firmware
-   treats the interrupt as maintenance: its watchdog is held off for 15
-   minutes and then resets the board, so an abandoned flash recovers itself.
+1. Interrupt the running firmware and enter the raw REPL. Over serial, this
+   means stopping the monitor (which owns the port) and sending the firmware
+   a maintenance command, which moves its REPL onto the link. Either way the
+   firmware's watchdog is held off for 15 minutes and then resets the board,
+   so an abandoned flash recovers itself.
 2. Write every changed file as <name>.new and check its SHA-256 on the board.
 3. Only once every file has verified: move the new files into place, delete
    files a previous deploy shipped that are no longer part of the firmware,
@@ -39,6 +42,10 @@ STATE_FILES = {'bootcount', 'pi_power', 'crash.log', 'crash.log.1', 'nowdt', MAN
 LEGACY_FILES = ['statemachine.py', 'relay_test.txt', 'relay_test2.txt', 'relay_test3.txt']
 CHUNK = 768
 BOOT_WAIT_S = 45
+# Exit status when the files were installed but the new firmware wasn't seen
+# booting; retrying the flash wouldn't help.
+BOOT_CHECK_FAILED = 3
+MAINTENANCE_COMMAND = b'\n{"cmd": "maintenance"}\n'
 
 DEVICE_HELPERS = r"""
 import os, binascii, hashlib
@@ -194,7 +201,10 @@ def wait_for_boot(version, since):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--version', required=True, help='commit being deployed')
-    parser.add_argument('--port', help='serial port (default: found automatically)')
+    parser.add_argument('--port', help='USB serial port (default: found automatically)')
+    parser.add_argument('--serial', metavar='PORT',
+                        help="flash over the Pi link's UART instead of USB; stops "
+                             'roboat-monitor while flashing')
     parser.add_argument('--wait', type=int, default=0, metavar='SECONDS',
                         help='wait this long for the board to appear, then interrupt it at once')
     parser.add_argument('--reset-delay', type=int, metavar='SECONDS',
@@ -204,11 +214,43 @@ def main():
 
     files = firmware_files(args.version)
     paths = [p for p, _ in files]
-    port = args.port or find_port(args.wait)
-    if args.wait:
-        time.sleep(0.3)  # let the port settle after enumeration
+    if args.serial:
+        monitor('stop')
+        try:
+            since = flash(args, files, paths, args.serial)
+        finally:
+            monitor('start')  # also needed to see the boot status below
+    else:
+        port = args.port or find_port(args.wait)
+        if args.wait:
+            time.sleep(0.3)  # let the port settle after enumeration
+        since = flash(args, files, paths, port)
+
+    if args.reset_delay:
+        print('The board resets itself in {} s.'.format(args.reset_delay))
+        return 0
+    print('Board reset; waiting for the boot status message...')
+    line = wait_for_boot(args.version, since)
+    if line is None:
+        print('No boot status with version {} within {} s. Check the monitor journal and the '
+              'board.'.format(args.version, BOOT_WAIT_S), file=sys.stderr)
+        return BOOT_CHECK_FAILED
+    print('Firmware {} is running: {}'.format(args.version, line))
+    return 0
+
+
+def monitor(action):
+    subprocess.run(['sudo', 'systemctl', action, 'roboat-monitor'], check=True)
+
+
+def flash(args, files, paths, port):
+    """Stage, verify, and install the files, then reset the board (now, or
+    after --reset-delay). Returns the time just before the reset."""
     repl = RawRepl(port)
     try:
+        if args.serial:
+            repl.ser.write(MAINTENANCE_COMMAND)
+            time.sleep(1.0)
         repl.enter()
         repl.exec(DEVICE_HELPERS)
         on_board = repl.eval('[_hash(p) for p in {!r}]'.format(paths))
@@ -241,20 +283,11 @@ def main():
         if args.reset_delay:
             repl.start('import time, machine\ntime.sleep({})\nmachine.reset()'
                        .format(args.reset_delay))
-            print('The board resets itself in {} s.'.format(args.reset_delay))
-            return 0
-        repl.start('import machine\nmachine.reset()')
+        else:
+            repl.start('import machine\nmachine.reset()')
+        return since
     finally:
         repl.close()
-
-    print('Board reset; waiting for the boot status message...')
-    line = wait_for_boot(args.version, since)
-    if line is None:
-        print('No boot status with version {} within {} s. Check the monitor journal and the '
-              'board.'.format(args.version, BOOT_WAIT_S), file=sys.stderr)
-        return 1
-    print('Firmware {} is running: {}'.format(args.version, line))
-    return 0
 
 
 if __name__ == '__main__':

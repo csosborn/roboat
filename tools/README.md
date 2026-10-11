@@ -16,7 +16,7 @@ tools/deploy.sh --flash    # reflash the RP2040 even if its files didn't change
 - installs any systemd unit that differs from the installed copy, and reloads systemd;
 - updates the monitor's virtualenv if its requirements changed, and restarts the monitor if its code or unit changed;
 - runs `docker-compose up` if the TIG stack's configuration changed;
-- flashes the RP2040 with `rp2040_flash.py` if `src/micro` changed.
+- flashes the RP2040 with `rp2040_flash.py` if `src/micro` changed. It flashes over the serial link that carries telemetry (`/dev/ttyAMA3`), stopping the monitor for the duration: the firmware's `maintenance` command moves its REPL onto that link. If the board doesn't respond, for example because its firmware predates serial deploys, it falls back to USB.
 
 The flash stages every changed file on the RP2040 and verifies it before replacing anything, then resets the board and waits for its boot status message to report the new commit. If it fails part way, the board's files are unchanged; the interrupted firmware resumes on its own within 15 minutes, or immediately with a reset.
 

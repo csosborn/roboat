@@ -2,6 +2,7 @@ import machine
 from machine import Pin, UART, I2C, PWM, WDT, Timer
 from neopixel import NeoPixel
 
+import os
 import time
 
 import supervisor
@@ -31,6 +32,11 @@ NEOPIXEL_PIN = 16
 STATUS_INTERVAL_MS = 60000
 START_PI_INTERVAL_MS = 10000
 SAFE_MODE_RETRY_MS = 3600000
+# Room for a whole deploy chunk (about 1 KB) arriving while the REPL is busy;
+# the link has no flow control.
+PI_UART_RXBUF = 4096
+# Moving the REPL onto the Pi link lets deploys run without USB.
+SERIAL_REPL = hasattr(os, 'dupterm')
 
 # Timers that must outlive the function creating them. An unreferenced
 # machine.Timer can be garbage-collected, which cancels it.
@@ -47,9 +53,18 @@ np = NeoPixel(Pin(NEOPIXEL_PIN, Pin.OUT), 1)
 
 # Both built-in UARTs are used, one for bidirectional communication with the RPi and one
 # for receiving data from the Victron MPPT
-rpi_uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1))
+rpi_uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1), rxbuf=PI_UART_RXBUF)
 clock = Clock()
 pi_link = PiLink(rpi_uart, clock)
+
+
+class MaintenanceRequested(Exception):
+    pass
+
+
+def attach_repl_to_pi_link():
+    if SERIAL_REPL:
+        os.dupterm(rpi_uart)
 
 
 def uptime_s():
@@ -75,6 +90,7 @@ def run_safe_mode():
     print("SAFE MODE after {} boots without a healthy run. The watchdog is off and the Pi "
           "relay is left as boot.py set it. Normal operation is retried in {} minutes."
           .format(boot_number, SAFE_MODE_RETRY_MS // 60000))
+    attach_repl_to_pi_link()
 
     def retry(t):
         supervisor.mark_healthy()
@@ -136,7 +152,7 @@ def run():
     # loop stops for maintenance.
     keep_alive.append(Timer(period=1000, mode=Timer.PERIODIC, callback=feed_wdt))
 
-    send_status(event="boot", wdt=wdt is not None)
+    send_status(event="boot", wdt=wdt is not None, serial_repl=SERIAL_REPL)
     last_status_ms = time.ticks_ms()
     healthy = False
 
@@ -145,6 +161,9 @@ def run():
             now = time.ticks_ms()
             liveness.alive(now)
             tasks.run_due(now)
+            for command in pi_link.poll_commands():
+                if command["cmd"] == "maintenance" and SERIAL_REPL:
+                    raise MaintenanceRequested()
             gps.step(now)
             if not monitor.step(now):
                 time.sleep_ms(10)
@@ -154,12 +173,15 @@ def run():
             if not healthy and time.ticks_diff(now, boot_ms) >= supervisor.HEALTHY_AFTER_MS:
                 supervisor.mark_healthy()
                 healthy = True
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, MaintenanceRequested) as e:
         # Someone (or a deploy) is at the console. Hold the watchdog off for a
         # while; if nobody resets the board by then, it resets itself and
         # resumes normal operation.
         liveness.start_maintenance(time.ticks_ms())
-        send_status(event="maintenance")
+        via_pi_link = isinstance(e, MaintenanceRequested)
+        send_status(event="maintenance", via="pi_link" if via_pi_link else "console")
+        if via_pi_link:
+            attach_repl_to_pi_link()
         print("Main loop stopped. The watchdog resets the board in {} s unless "
               "reset sooner.".format(supervisor.MAINTENANCE_S) if wdt else "Main loop stopped.")
     except Exception as e:

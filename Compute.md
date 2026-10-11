@@ -10,7 +10,7 @@
 - Raspberry Pi 4 Model B with 8GB memory
     - RP2040 (below)
         - UART connection for operational data
-        - USB connection for programming only. Its 5V (VBUS) line must be cut: the RP2040 runs from its own supply, and a live VBUS back-powers the Pi through its USB port, so the relay can no longer switch the Pi off.
+        - USB connection: a fallback for programming only; deploys normally go over the UART (see `tools/README.md`). Its 5V (VBUS) line must be cut: the RP2040 runs from its own supply, and a live VBUS back-powers the Pi through its USB port, so the relay can no longer switch the Pi off.
 
 - RP2040 Feather microcontroller running MicroPython
     - UART-connected Victron MPPT
