@@ -1,195 +1,165 @@
-from machine import Pin, UART, I2C, PWM, WDT
+import machine
+from machine import Pin, UART, I2C, PWM, WDT, Timer
 from neopixel import NeoPixel
-from roboat_fsm import *
-from battery_model import BatteryModel
-from soc_estimator import LFPSoCEstimator
 
 import time
-import json
 
+import supervisor
+from roboat_fsm import RoboatSM, START_PI
+from power_monitor import PowerMonitor
+from battery_model import BatteryModel
+from soc_estimator import LFPSoCEstimator
 from victron import VictronMPPT
 from ina260 import INA260
 from pi_link import PiLink
 
-# Set up the watchdog timer with a 1s timeout. It will be fed on every iteration of the
-# main loop, or about every 10ms.
-#wdt = WDT(timeout=1000)
+try:
+    from version import VERSION
+except ImportError:
+    VERSION = 'unknown'
 
-bootsel_button_pin = Pin(4, Pin.IN)
+PI_POWER_PIN = 11
+DRIVE_POWER_PIN = 7
+ESC_PIN = 8
+NEOPIXEL_PIN = 16
 
-np_pin = Pin(16, Pin.OUT)
-np = NeoPixel(np_pin, 1)
+STATUS_INTERVAL_MS = 60000
+START_PI_INTERVAL_MS = 10000
+# A Pi powered on from off takes a while to bring up its USB host; reconnect
+# once it should be ready, and again in case it was slow.
+USB_RECONNECT_DELAYS_MS = (20000, 60000)
+MAX_PENDING = 32
 
-# Solid State relay control pins
-pi_power = Pin(11, Pin.OUT)
-drive_power = Pin(7, Pin.OUT)
+boot_ms = time.ticks_ms()
+boot_number, safe_mode = supervisor.record_boot()
 
-# ESC PWM control
-esc = PWM(Pin(8), freq=50)
-esc.duty_ns(10)
+pi_power = Pin(PI_POWER_PIN, Pin.OUT, value=1)
+np = NeoPixel(Pin(NEOPIXEL_PIN, Pin.OUT), 1)
 
-roboat = RoboatSM(neopixel =np, pi_power_pin = pi_power, drive_power_pin = drive_power, drive_pwm = esc)
-
-imu_i2c = I2C(0, scl=Pin(13), sda=Pin(12), freq=400_000)
-ina260_i2c = I2C(1, scl=Pin(3), sda=Pin(2), freq=400_000)
-
-ina = INA260(ina260_i2c, 0x40)
-
-# Both built-in UARTs are used, one for bidirectional communication with the RPi and one 
+# Both built-in UARTs are used, one for bidirectional communication with the RPi and one
 # for receiving data from the Victron MPPT
 rpi_uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1))
-mppt_uart = UART(1, baudrate=19200, tx=Pin(8), rx=Pin(9))
-
-# The PiLink object owns the connection to the Raspberry Pi, and handles
-# tracking the state of the Pi, resetting it if necessary, and ensuring
-# that all sensor data reaches it eventually.
 pi_link = PiLink(rpi_uart)
 
-battery = BatteryModel(nominal_v = 12.8, nominal_ah = 20)
-soc_estimator = LFPSoCEstimator()
 
-mppt = VictronMPPT(mppt_uart)
-mppt_epoch = -1
-
-ina260_v = 0
-ina260_i = 0
-ina260_p = 0
-ina260_dcharge = 0
-last_ticks = time.ticks_ms()
-
-def monitor_power():
-    global last_ticks
-    global mppt_epoch
-    global ina260_dcharge
-    global ina260_v
-    global ina260_i
-    global ina260_p
-
-    now = time.ticks_ms()
-    dt_ms = now - last_ticks
-    if dt_ms > 1000:
-        ina260_i = ina.current
-        ina260_v = ina.voltage
-        ina260_p = ina.power
-        ina260_dcharge = (
-            ina260_dcharge + ina260_i * dt_ms / 1000.0
-        )
-
-        pi_link.send_update("ina260", {
-            "logic_p": ina260_p,
-            "logic_i": ina260_i,
-            "batt_v": ina260_v,
-            "logic_total_ah": ina260_dcharge / 3600.0
-        })
-
-#         print(
-#             "{:.2f}V   {:.3f}A   {:.2f}W  {:.3f}Ah".format(
-#                 ina260_v, ina260_i, ina260_p, ina260_dcharge / 3600
-#             )
-#         )
-        last_ticks = now
-
-    mppt.update()
-    if mppt.active and mppt.epoch > mppt_epoch:
-        pi_link.send_update("mppt", {
-            "mppt_mode": mppt.tracker_mode,
-            "mppt_epoch": mppt.epoch,
-            "batt_v": mppt.battery_volts,
-            "batt_i": mppt.battery_amps,
-            "sol_v": mppt.panel_volts,
-            "sol_p": mppt.panel_watts,
-            "load_i": mppt.load_amps,
-            "mppt_total_kwh": mppt.yield_total_kwh
-        })
-        mppt_epoch = mppt.epoch
-        soc_estimator.update(mppt.battery_volts, mppt.battery_amps, 20)
-        if battery.update(now, mppt.battery_volts, mppt.battery_amps):
-            pi_link.send_update("battery", {
-                "cap": battery.capacity_est_/3600.0,
-                "cap_min": battery.cap_est_min_/3600.0,
-                "cap_max": battery.cap_est_max_/3600.0,
-                "soc": soc_estimator.soc
-            })
-            print(soc_estimator.soc)
-        if mppt.battery_volts > 12.5:
-            roboat.dispatch(MAIN_POWER_UP)
-        else:
-            roboat.dispatch(MAIN_POWER_DOWN)
-
-        if mppt.battery_volts > 13.5 or mppt.panel_watts > 10:
-            roboat.dispatch(ENERGY_OK)
-        else:
-            roboat.dispatch(ENERGY_LOW)
-
-    else:
-        time.sleep_ms(10)
-
-    # service the watchdog timer
-    # wdt.feed()
+def uptime_s():
+    return time.ticks_diff(time.ticks_ms(), boot_ms) // 1000
 
 
-
-# def Init_logic():
-#     # Referenced global variables
-#     # ----> Here <----
-#     
-#     # Code that executes just once during state
-#     if fsm.execute_once:
-#         print("Machine in Init")
-#         np[0] = (2, 0, 0)
-#         np.write()
-# #         print(imu_i2c.scan())
-# #         print(ina260_i2c.scan())
-# 
-#     # Code that executes continously during state
-#     pi_power.off()
-#     drive_power.off()
-#     monitor()
-
-# def Run_logic():
-#     global last_ticks
-#     global mppt_epoch
-#     global ina260_dcharge
-#     global ina260_v
-#     global ina260_i
-#     global ina260_p
-# 
-#     if fsm.execute_once:
-#         print("Machine in Run")
-#         np[0] = (0, 0, 2)
-#         np.write()
-# 
-#     pi_power.on()
-#     drive_power.on()
-#     monitor()
-
-# Init_state = fsm.add_state(Init_logic)
-# Run_state = fsm.add_state(Run_logic)
-
-# def main_power_available():
-#     return mppt.battery_volts > 12
-# 
-# Init_state.attach_transition(main_power_available, Run_state)
-
-# while True:
-#     fsm.run()
-
-roboat.dispatch(WAKE)
-
-def tick_loop(t):
-    roboat.dispatch(TICK)
-
-tick_timer = Timer()
-tick_timer.init(period=1000, mode=Timer.PERIODIC, callback=tick_loop)
-
-start_pi_timer = Timer()
-start_pi_timer.init(period=10000, mode=Timer.PERIODIC, callback=lambda t: roboat.dispatch(START_PI))
-
-# start_drive_timer = Timer()
-# start_drive_timer.init(period=100000, mode=Timer.ONE_SHOT, callback=lambda t: roboat.dispatch('start_drive'))
+def status_fields(**extra):
+    fields = {
+        "version": VERSION,
+        "boot": boot_number,
+        "reset_cause": machine.reset_cause(),
+        "uptime_s": uptime_s(),
+        "pi_power": pi_power.value(),
+    }
+    fields.update(extra)
+    return fields
 
 
-while True:
-    monitor_power()
+def run_safe_mode():
+    np[0] = (2, 0, 2)
+    np.write()
+    pi_link.send_update("status", status_fields(mode="safe"))
+    print("SAFE MODE after {} boots without a healthy run. The watchdog is off and "
+          "the Pi is powered. Fix or redeploy, delete 'bootcount', then reset.".format(boot_number))
 
 
+def run():
+    drive_power = Pin(DRIVE_POWER_PIN, Pin.OUT, value=0)
+    esc = PWM(Pin(ESC_PIN), freq=50)
+    esc.duty_ns(10)
+
+    imu_i2c = I2C(0, scl=Pin(13), sda=Pin(12), freq=400_000)
+    mppt_uart = UART(1, baudrate=19200, tx=Pin(8), rx=Pin(9))
+
+    def make_ina():
+        return INA260(I2C(1, scl=Pin(3), sda=Pin(2), freq=400_000), 0x40)
+
+    # Timer callbacks only queue work; the main loop runs it, so FSM
+    # dispatches never interrupt each other.
+    pending = []
+
+    def post(fn):
+        if len(pending) < MAX_PENDING:
+            pending.append(fn)
+
+    def schedule(delay_ms, fn):
+        Timer(period=delay_ms, mode=Timer.ONE_SHOT, callback=lambda t: post(fn))
+
+    def reconnect_usb():
+        try:
+            supervisor.usb_reconnect()
+        except Exception as e:
+            print("USB reconnect failed:", repr(e))
+
+    def on_pi_power_on():
+        for delay in USB_RECONNECT_DELAYS_MS:
+            schedule(delay, reconnect_usb)
+
+    roboat = RoboatSM(neopixel=np, pi_power_pin=pi_power, drive_power_pin=drive_power,
+                      drive_pwm=esc, schedule=schedule, on_pi_power_on=on_pi_power_on)
+
+    monitor = PowerMonitor(make_ina, VictronMPPT(mppt_uart), pi_link,
+                           BatteryModel(nominal_v=12.8, nominal_ah=20), LFPSoCEstimator(),
+                           roboat.dispatch, time.ticks_ms())
+
+    def send_status(**extra):
+        pi_link.send_update("status", status_fields(
+            state=roboat.state, ina_errors=monitor.ina_errors,
+            mppt_errors=monitor.mppt_errors, **extra))
+
+    start_pi_timer = Timer(period=START_PI_INTERVAL_MS, mode=Timer.PERIODIC,
+                           callback=lambda t: post(lambda: roboat.dispatch(START_PI)))
+
+    liveness = supervisor.Liveness(time.ticks_ms())
+    wdt = None if supervisor.wdt_disabled() else WDT(timeout=supervisor.WDT_TIMEOUT_MS)
+
+    def feed_wdt(t):
+        if wdt is not None and liveness.should_feed(time.ticks_ms()):
+            wdt.feed()
+
+    wdt_timer = Timer(period=1000, mode=Timer.PERIODIC, callback=feed_wdt)
+
+    send_status(event="boot", wdt=wdt is not None)
+    last_status_ms = time.ticks_ms()
+    healthy = False
+
+    try:
+        while True:
+            now = time.ticks_ms()
+            liveness.alive(now)
+            while pending:
+                pending.pop(0)()
+            if not monitor.step(now):
+                time.sleep_ms(10)
+            if time.ticks_diff(now, last_status_ms) >= STATUS_INTERVAL_MS:
+                send_status()
+                last_status_ms = now
+            if not healthy and time.ticks_diff(now, boot_ms) >= supervisor.HEALTHY_AFTER_MS:
+                supervisor.mark_healthy()
+                healthy = True
+    except KeyboardInterrupt:
+        # Someone (or a deploy) is at the console. Hold the watchdog off for a
+        # while; if nobody resets the board by then, it resets itself and
+        # resumes normal operation.
+        start_pi_timer.deinit()
+        liveness.start_maintenance(time.ticks_ms())
+        send_status(event="maintenance")
+        print("Main loop stopped. The watchdog resets the board in {} s unless "
+              "reset sooner.".format(supervisor.MAINTENANCE_S) if wdt else "Main loop stopped.")
+    except Exception as e:
+        supervisor.record_crash(e, time.ticks_diff(time.ticks_ms(), boot_ms))
+        try:
+            send_status(event="crash", error=repr(e))
+            time.sleep_ms(100)
+        except Exception:
+            pass
+        machine.reset()
+
+
+if safe_mode:
+    run_safe_mode()
+else:
+    run()
