@@ -46,7 +46,7 @@ if __name__ == "__main__":
             read_data = True
             if s[0] == 0xff:
                 break
-            one_char = s.decode("utf-8")
+            one_char = s.decode("utf-8", errors="replace")
             s = ser.read()
             if one_char != "\r":
                 if one_char == "\n":
@@ -55,10 +55,15 @@ if __name__ == "__main__":
                     except json.decoder.JSONDecodeError as err:
                         print(err)
                         print("Bad buffer: |{}|".format(buf))
+                        buf = ""
+                        continue
                     buf = ""
                     print(data)
 
-                    if data['src'] == "mppt":               
+                    if data['src'] == "status":
+                        fields = {k: v for k, v in data.items() if k not in ("src", "offset_s")}
+                        write_api.write(bucket, org, {"measurement": "rp2040_status", "fields": fields})
+                    elif data['src'] == "mppt":
                         dictionary = {
                             "measurement": "mppt",
                             "fields": {

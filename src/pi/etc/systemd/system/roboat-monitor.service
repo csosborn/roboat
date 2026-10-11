@@ -7,6 +7,7 @@ After=roboat-tig.service
 Type=simple
 WorkingDirectory=/home/csosborn/roboat/src/pi/monitor
 EnvironmentFile=/home/csosborn/roboat/src/pi/TIG/telegraf.env
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/csosborn/roboat/src/pi/monitor/monitor.venv/bin/python main.py
 Restart=always
 RestartSec=10s
