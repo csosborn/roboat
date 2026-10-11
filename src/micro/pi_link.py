@@ -12,5 +12,9 @@ class PiLink:
         }
         update_msg.update(data)
         update_json = json.dumps(update_msg)
+#         print(update_json)
         self.uart_.write(update_json)
         self.uart_.write("\r\n")
+
+
+        

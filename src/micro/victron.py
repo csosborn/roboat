@@ -53,3 +53,4 @@ class VictronMPPT:
                 self.active = True
                 self.epoch = self.epoch + 1
             
+
