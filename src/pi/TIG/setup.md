@@ -46,6 +46,7 @@ Credentials live in `*.env` files in this directory, which are gitignored. Creat
 cp telegraf.env.example telegraf.env
 cp influxdb.env.example influxdb.env
 cp grafana.env.example grafana.env
+cp ../monitor/monitor.env.example ../monitor/monitor.env
 ```
 
-`INFLUX_TOKEN` in `telegraf.env` is shared by Telegraf and by the monitor service (`roboat-monitor.service` loads it via `EnvironmentFile`), so the token needs write access to both the `compute` and `roboat_01` buckets.
+Telegraf and the monitor service use separate InfluxDB tokens. Telegraf's (in `telegraf.env`) writes the `compute` bucket. The monitor's (in `src/pi/monitor/monitor.env`, loaded by `roboat-monitor.service`) writes the `roboat_01` bucket.

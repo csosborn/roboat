@@ -14,7 +14,7 @@ org = "CSO"
 url = os.environ.get("INFLUX_URL", "http://localhost:8086")
 token = os.environ.get("INFLUX_TOKEN")
 if not token:
-    sys.exit("INFLUX_TOKEN is not set; see src/pi/TIG/telegraf.env.example")
+    sys.exit("INFLUX_TOKEN is not set; see src/pi/monitor/monitor.env.example")
 
 gps_interval_ns = 1e9
 gps_connect_needed = True
