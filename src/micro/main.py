@@ -16,6 +16,7 @@ from pi_link import PiLink
 from clock import Clock
 from gps import GpsMonitor
 from shared_bus import SharedBus
+from scheduler import Scheduler
 
 try:
     from version import VERSION
@@ -32,8 +33,11 @@ START_PI_INTERVAL_MS = 10000
 # A Pi powered on from off takes a while to bring up its USB host; reconnect
 # once it should be ready, and again in case it was slow.
 USB_RECONNECT_DELAYS_MS = (20000, 60000)
-MAX_PENDING = 32
 SAFE_MODE_RETRY_MS = 3600000
+
+# Timers that must outlive the function creating them. An unreferenced
+# machine.Timer can be garbage-collected, which cancels it.
+keep_alive = []
 
 boot_ms = time.ticks_ms()
 boot_number, safe_mode = supervisor.record_boot()
@@ -79,7 +83,7 @@ def run_safe_mode():
         supervisor.mark_healthy()
         machine.reset()
 
-    Timer(period=SAFE_MODE_RETRY_MS, mode=Timer.ONE_SHOT, callback=retry)
+    keep_alive.append(Timer(period=SAFE_MODE_RETRY_MS, mode=Timer.ONE_SHOT, callback=retry))
 
 
 def run():
@@ -101,16 +105,10 @@ def run():
         ina_made.append(True)
         return INA260(i2c1.get(), 0x40)
 
-    # Timer callbacks only queue work; the main loop runs it, so FSM
-    # dispatches never interrupt each other.
-    pending = []
-
-    def post(fn):
-        if len(pending) < MAX_PENDING:
-            pending.append(fn)
+    tasks = Scheduler()
 
     def schedule(delay_ms, fn):
-        Timer(period=delay_ms, mode=Timer.ONE_SHOT, callback=lambda t: post(fn))
+        tasks.after(delay_ms, fn)
 
     usb = {"reconnects": 0, "error": ""}
 
@@ -147,8 +145,7 @@ def run():
             gps_fixes=gps.fixes, time_valid=clock.valid, i2c_rebuilds=i2c1.rebuilds,
             usb_reconnects=usb["reconnects"], **extra))
 
-    start_pi_timer = Timer(period=START_PI_INTERVAL_MS, mode=Timer.PERIODIC,
-                           callback=lambda t: post(lambda: roboat.dispatch(START_PI)))
+    tasks.every(START_PI_INTERVAL_MS, lambda: roboat.dispatch(START_PI))
 
     liveness = supervisor.Liveness(time.ticks_ms())
     wdt = None if supervisor.wdt_disabled() else WDT(timeout=supervisor.WDT_TIMEOUT_MS)
@@ -157,7 +154,9 @@ def run():
         if wdt is not None and liveness.should_feed(time.ticks_ms()):
             wdt.feed()
 
-    wdt_timer = Timer(period=1000, mode=Timer.PERIODIC, callback=feed_wdt)
+    # This one stays a hardware timer: it must keep running after the main
+    # loop stops for maintenance.
+    keep_alive.append(Timer(period=1000, mode=Timer.PERIODIC, callback=feed_wdt))
 
     send_status(event="boot", wdt=wdt is not None)
     last_status_ms = time.ticks_ms()
@@ -167,8 +166,7 @@ def run():
         while True:
             now = time.ticks_ms()
             liveness.alive(now)
-            while pending:
-                pending.pop(0)()
+            tasks.run_due(now)
             gps.step(now)
             if not monitor.step(now):
                 time.sleep_ms(10)
@@ -182,7 +180,6 @@ def run():
         # Someone (or a deploy) is at the console. Hold the watchdog off for a
         # while; if nobody resets the board by then, it resets itself and
         # resumes normal operation.
-        start_pi_timer.deinit()
         liveness.start_maintenance(time.ticks_ms())
         send_status(event="maintenance")
         print("Main loop stopped. The watchdog resets the board in {} s unless "
