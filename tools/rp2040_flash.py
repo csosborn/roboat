@@ -29,7 +29,8 @@ import time
 import serial
 
 MICRO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'micro')
-PORT_GLOB = '/dev/serial/by-id/usb-MicroPython_*'
+# Linux (the Pi), then macOS.
+PORT_GLOBS = ['/dev/serial/by-id/usb-MicroPython_*', '/dev/cu.usbmodem*']
 NOT_SHIPPED = {'install.sh', 'notes.md', 'version.py'}
 MANIFEST = 'deploy_manifest'
 # Runtime state the firmware keeps on flash. A deploy never deletes these.
@@ -130,12 +131,19 @@ class RawRepl:
         time.sleep(0.5)
 
 
-def find_port():
-    ports = glob.glob(PORT_GLOB)
-    if len(ports) != 1:
-        raise DeviceError('expected one RP2040 at {}, found {}. Is the USB cable connected?'
-                          .format(PORT_GLOB, len(ports) or 'none'))
-    return ports[0]
+def find_port(wait_s=0):
+    deadline = time.monotonic() + wait_s
+    while True:
+        for pattern in PORT_GLOBS:
+            ports = glob.glob(pattern)
+            if len(ports) > 1:
+                raise DeviceError('more than one board matches {}; pass --port'.format(pattern))
+            if ports:
+                return ports[0]
+        if time.monotonic() >= deadline:
+            raise DeviceError('no RP2040 found at {}. Is the USB cable connected?'
+                              .format(' or '.join(PORT_GLOBS)))
+        time.sleep(0.1)
 
 
 def firmware_files(version):
@@ -186,6 +194,9 @@ def wait_for_boot(version, since):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--version', required=True, help='commit being deployed')
+    parser.add_argument('--port', help='serial port (default: found automatically)')
+    parser.add_argument('--wait', type=int, default=0, metavar='SECONDS',
+                        help='wait this long for the board to appear, then interrupt it at once')
     parser.add_argument('--reset-delay', type=int, metavar='SECONDS',
                         help='reset the board this long after flashing instead of now, '
                              'and skip the boot check')
@@ -193,7 +204,10 @@ def main():
 
     files = firmware_files(args.version)
     paths = [p for p, _ in files]
-    repl = RawRepl(find_port())
+    port = args.port or find_port(args.wait)
+    if args.wait:
+        time.sleep(0.3)  # let the port settle after enumeration
+    repl = RawRepl(port)
     try:
         repl.enter()
         repl.exec(DEVICE_HELPERS)

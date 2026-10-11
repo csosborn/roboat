@@ -61,3 +61,45 @@ def test_maintenance_window_holds_off_watchdog_then_expires():
     live.start_maintenance(now_ms=0, seconds=60)
     assert live.should_feed(59000)
     assert not live.should_feed(61000)
+
+
+class FakeUSBDevice:
+    """Models MicroPython's runtime USBDevice: it starts with no built-in
+    driver, and refuses to activate without a driver or a config()."""
+    BUILTIN_NONE = 0
+    BUILTIN_DEFAULT = 1
+    instance = None
+
+    def __new__(cls):
+        if cls.instance is None:
+            cls.instance = super().__new__(cls)
+            cls.instance._active = True
+            cls.instance._builtin = cls.BUILTIN_NONE
+        return cls.instance
+
+    def active(self, value=None):
+        if value is None:
+            return self._active
+        if value and self._builtin == self.BUILTIN_NONE:
+            raise OSError(22)
+        self._active = value
+
+    @property
+    def builtin_driver(self):
+        return self._builtin
+
+    @builtin_driver.setter
+    def builtin_driver(self, value):
+        if self._active:
+            raise OSError(1)
+        self._builtin = value
+
+
+def test_usb_reconnect_leaves_usb_active_with_the_builtin_driver(monkeypatch):
+    import machine
+    FakeUSBDevice.instance = None
+    monkeypatch.setattr(machine, 'USBDevice', FakeUSBDevice, raising=False)
+    sv.usb_reconnect()
+    dev = FakeUSBDevice()
+    assert dev.active() is True
+    assert dev.builtin_driver == FakeUSBDevice.BUILTIN_DEFAULT

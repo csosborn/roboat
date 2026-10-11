@@ -119,5 +119,9 @@ def usb_reconnect():
     import machine
     dev = machine.USBDevice()
     dev.active(False)
+    # Once USBDevice takes over from the boot-time USB stack, it has no
+    # built-in driver, so active(True) fails and USB (including the REPL)
+    # stays off until a reset. Restore the built-in CDC before reactivating.
+    dev.builtin_driver = dev.BUILTIN_DEFAULT
     time.sleep_ms(500)
     dev.active(True)

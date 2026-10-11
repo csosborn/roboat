@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import FakePin, FakePWM, FakeNeoPixel
+from fakes import FakePin, FakePWM, FakeNeoPixel
 import roboat_fsm as fsm
 
 
