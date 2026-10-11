@@ -42,9 +42,11 @@ git push --force "$host:$repo" "$sha:refs/heads/deployed"
 ssh "$host" "$repo/tools/pi_apply.sh $old $sha $flash"
 
 if [ "$flash" = --flash-halt ]; then
+    # Keepalives make a connection that dies with the Pi fail fast instead of hanging.
+    wait_ssh=(ssh -o ConnectTimeout=5 -o ServerAliveInterval=5 -o ServerAliveCountMax=2)
     echo "Waiting for the Pi to come back..."
     deadline=$((SECONDS + 420))
-    until id=$(ssh -o ConnectTimeout=5 "$host" cat /proc/sys/kernel/random/boot_id 2>/dev/null) \
+    until id=$("${wait_ssh[@]}" "$host" cat /proc/sys/kernel/random/boot_id 2>/dev/null) \
             && [ "$id" != "$boot_id" ]; do
         if [ $SECONDS -ge $deadline ]; then
             echo "The Pi didn't come back within 7 minutes. If its red LED is lit, the relay held" >&2
@@ -57,7 +59,7 @@ if [ "$flash" = --flash-halt ]; then
     echo "The Pi is back (the RP2040's reset power-cycled it). Waiting for an RP2040 status message..."
     version=${sha:0:12}
     deadline=$((SECONDS + 180))
-    until line=$(ssh "$host" "journalctl -u roboat-monitor -b --no-pager -o cat" \
+    until line=$("${wait_ssh[@]}" "$host" "journalctl -u roboat-monitor -b --no-pager -o cat" \
             | grep "'src': 'status'" | grep "'version': '$version'" | tail -1) && [ -n "$line" ]; do
         if [ $SECONDS -ge $deadline ]; then
             echo "No RP2040 status message reporting version $version within 3 minutes." >&2
