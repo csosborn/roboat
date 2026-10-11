@@ -13,6 +13,9 @@ from soc_estimator import LFPSoCEstimator
 from victron import VictronMPPT
 from ina260 import INA260
 from pi_link import PiLink
+from clock import Clock
+from gps import GpsMonitor
+from shared_bus import SharedBus
 
 try:
     from version import VERSION
@@ -44,7 +47,8 @@ np = NeoPixel(Pin(NEOPIXEL_PIN, Pin.OUT), 1)
 # Both built-in UARTs are used, one for bidirectional communication with the RPi and one
 # for receiving data from the Victron MPPT
 rpi_uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1))
-pi_link = PiLink(rpi_uart)
+clock = Clock()
+pi_link = PiLink(rpi_uart, clock)
 
 
 def uptime_s():
@@ -86,8 +90,16 @@ def run():
     imu_i2c = I2C(0, scl=Pin(13), sda=Pin(12), freq=400_000)
     mppt_uart = UART(1, baudrate=19200, tx=Pin(8), rx=Pin(9))
 
+    # The INA260 and the GPS (on the STEMMA QT connector) share I2C1.
+    i2c1 = SharedBus(lambda: I2C(1, scl=Pin(3), sda=Pin(2), freq=400_000))
+    ina_made = []
+
     def make_ina():
-        return INA260(I2C(1, scl=Pin(3), sda=Pin(2), freq=400_000), 0x40)
+        # Called again only after repeated INA260 errors; rebuild the bus too.
+        if ina_made:
+            i2c1.rebuild()
+        ina_made.append(True)
+        return INA260(i2c1.get(), 0x40)
 
     # Timer callbacks only queue work; the main loop runs it, so FSM
     # dispatches never interrupt each other.
@@ -100,11 +112,14 @@ def run():
     def schedule(delay_ms, fn):
         Timer(period=delay_ms, mode=Timer.ONE_SHOT, callback=lambda t: post(fn))
 
+    usb = {"reconnects": 0, "error": ""}
+
     def reconnect_usb():
         try:
             supervisor.usb_reconnect()
+            usb["reconnects"] += 1
         except Exception as e:
-            print("USB reconnect failed:", repr(e))
+            usb["error"] = repr(e)
 
     def on_pi_power_on():
         for delay in USB_RECONNECT_DELAYS_MS:
@@ -121,11 +136,16 @@ def run():
     monitor = PowerMonitor(make_ina, VictronMPPT(mppt_uart), pi_link,
                            BatteryModel(nominal_v=12.8, nominal_ah=20), LFPSoCEstimator(),
                            roboat.dispatch, time.ticks_ms())
+    gps = GpsMonitor(i2c1, pi_link, clock, time.ticks_ms())
 
     def send_status(**extra):
+        if usb["error"]:
+            extra["usb_error"] = usb["error"]
         pi_link.send_update("status", status_fields(
             state=roboat.state, ina_errors=monitor.ina_errors,
-            mppt_errors=monitor.mppt_errors, **extra))
+            mppt_errors=monitor.mppt_errors, gps_mode=gps.mode, gps_errors=gps.errors,
+            gps_fixes=gps.fixes, time_valid=clock.valid, i2c_rebuilds=i2c1.rebuilds,
+            usb_reconnects=usb["reconnects"], **extra))
 
     start_pi_timer = Timer(period=START_PI_INTERVAL_MS, mode=Timer.PERIODIC,
                            callback=lambda t: post(lambda: roboat.dispatch(START_PI)))
@@ -149,6 +169,7 @@ def run():
             liveness.alive(now)
             while pending:
                 pending.pop(0)()
+            gps.step(now)
             if not monitor.step(now):
                 time.sleep_ms(10)
             if time.ticks_diff(now, last_status_ms) >= STATUS_INTERVAL_MS:

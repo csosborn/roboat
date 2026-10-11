@@ -10,7 +10,7 @@ if [ ! -x "$venv/bin/python" ]; then
     "$venv/bin/pip" install -q -r tools/requirements-dev.txt
 fi
 
-"$venv/bin/python" -m pytest -q tests/micro
+"$venv/bin/python" -m pytest -q tests
 
 failed=0
 while IFS= read -r f; do

@@ -8,7 +8,6 @@
 ## Components
 
 - Raspberry Pi 4 Model B with 8GB memory
-    - USB-connected GPS
     - RP2040 (below)
         - UART connection for operational data
         - USB connection for programming only. Its 5V (VBUS) line must be cut: the RP2040 runs from its own supply, and a live VBUS back-powers the Pi through its USB port, so the relay can no longer switch the Pi off.
@@ -16,7 +15,8 @@
 - RP2040 Feather microcontroller running MicroPython
     - UART-connected Victron MPPT
     - I2C-connected INA260 current/voltage monitor reading main battery voltage and aggregate load of compute and sensors
-    - I2C-connected 9-DOF IMU
+    - I2C-connected 9-DOF IMU (I2C0, GPIO 12/13)
+    - I2C-connected GPS: Adafruit Mini GPS PA1010D on the STEMMA QT connector (I2C1, GPIO 2/3, shared with the INA260). The RP2040 keeps position and UTC while the Pi is off, and timestamps its messages (`utc_ms`) once it has a fix.
     - propulsion motor ESC
     - rudder servo
 

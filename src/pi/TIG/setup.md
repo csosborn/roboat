@@ -9,7 +9,6 @@ sudo apt remove rpi-connect
 
 ``` 
 sudo apt-get update
-sudo apt install gpsd
 
 curl -fsSL https://tailscale.com/install.sh | sh
 
