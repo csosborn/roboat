@@ -8,6 +8,7 @@ import influxdb_client
 from influxdb_client.client.write_api import SYNCHRONOUS
 
 from points import to_point
+from writer import QueuedWriter
 
 bucket = "roboat_01"
 org = "CSO"
@@ -28,6 +29,7 @@ if __name__ == "__main__":
 
     # Initialize SYNCHRONOUS instance of WriteApi
     write_api = client.write_api(write_options=SYNCHRONOUS)
+    writer = QueuedWriter(lambda point: write_api.write(bucket, org, point))
 
     buf = ""
 
@@ -58,8 +60,12 @@ if __name__ == "__main__":
                         print("Unusable message ({!r}): {}".format(err, data))
                         continue
                     if point is not None:
-                        write_api.write(bucket, org, point)
+                        # Without the RP2040's GPS time, stamp on arrival so a point
+                        # that waits in the write queue keeps its real time.
+                        point.setdefault("time", time.time_ns())
+                        writer.write(point)
                 else:
                     buf += one_char
 
+        writer.flush()
         time.sleep(0.1)
