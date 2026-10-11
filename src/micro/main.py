@@ -30,9 +30,6 @@ NEOPIXEL_PIN = 16
 
 STATUS_INTERVAL_MS = 60000
 START_PI_INTERVAL_MS = 10000
-# A Pi powered on from off takes a while to bring up its USB host; reconnect
-# once it should be ready, and again in case it was slow.
-USB_RECONNECT_DELAYS_MS = (20000, 60000)
 SAFE_MODE_RETRY_MS = 3600000
 
 # Timers that must outlive the function creating them. An unreferenced
@@ -110,26 +107,9 @@ def run():
     def schedule(delay_ms, fn):
         tasks.after(delay_ms, fn)
 
-    usb = {"reconnects": 0, "error": ""}
-
-    def reconnect_usb():
-        try:
-            supervisor.usb_reconnect()
-            usb["reconnects"] += 1
-        except Exception as e:
-            usb["error"] = repr(e)
-
-    def on_pi_power_on():
-        for delay in USB_RECONNECT_DELAYS_MS:
-            schedule(delay, reconnect_usb)
-
     roboat = RoboatSM(neopixel=np, pi_power_pin=pi_power, drive_power_pin=drive_power,
-                      drive_pwm=esc, schedule=schedule, on_pi_power_on=on_pi_power_on,
+                      drive_pwm=esc, schedule=schedule,
                       record_pi_power=power_policy.ChoiceRecorder())
-    if pi_power.value():
-        # The Pi may be booting now too (the relay drops while this board
-        # resets), so it may have missed our USB attach.
-        on_pi_power_on()
 
     monitor = PowerMonitor(make_ina, VictronMPPT(mppt_uart), pi_link,
                            BatteryModel(nominal_v=12.8, nominal_ah=20), LFPSoCEstimator(),
@@ -137,13 +117,11 @@ def run():
     gps = GpsMonitor(i2c1, pi_link, clock, time.ticks_ms())
 
     def send_status(**extra):
-        if usb["error"]:
-            extra["usb_error"] = usb["error"]
         pi_link.send_update("status", status_fields(
             state=roboat.state, ina_errors=monitor.ina_errors,
             mppt_errors=monitor.mppt_errors, gps_mode=gps.mode, gps_errors=gps.errors,
             gps_fixes=gps.fixes, time_valid=clock.valid, i2c_rebuilds=i2c1.rebuilds,
-            usb_reconnects=usb["reconnects"], **extra))
+            **extra))
 
     tasks.every(START_PI_INTERVAL_MS, lambda: roboat.dispatch(START_PI))
 

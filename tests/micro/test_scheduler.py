@@ -28,11 +28,12 @@ def test_tasks_can_schedule_more_tasks():
     assert ran == ["second"]
 
 
-def test_reconnect_schedule_survives_until_due():
-    # The bug this replaces: one-shot work silently never ran.
+def test_delayed_work_survives_until_due():
+    # The bug this replaces: one-shot Timers were garbage-collected and
+    # silently never fired.
     s, ran = Scheduler(), []
     for delay in (20000, 60000):
-        s.after(delay, lambda: ran.append("usb"), now_ms=0)
+        s.after(delay, lambda: ran.append("done"), now_ms=0)
     for t in range(0, 61000, 500):
         s.run_due(t)
-    assert ran == ["usb", "usb"]
+    assert ran == ["done", "done"]

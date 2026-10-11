@@ -109,19 +109,3 @@ class Liveness:
             return True
         return time.ticks_diff(now_ms, self.last_alive) < LIVENESS_MS
 
-
-def usb_reconnect():
-    """Drop and re-assert the USB connection so a freshly booted host notices us.
-
-    A host that powers up after this board is already running doesn't always
-    detect it, because the board never went through a normal USB attach.
-    """
-    import machine
-    dev = machine.USBDevice()
-    dev.active(False)
-    # Once USBDevice takes over from the boot-time USB stack, it has no
-    # built-in driver, so active(True) fails and USB (including the REPL)
-    # stays off until a reset. Restore the built-in CDC before reactivating.
-    dev.builtin_driver = dev.BUILTIN_DEFAULT
-    time.sleep_ms(500)
-    dev.active(True)
