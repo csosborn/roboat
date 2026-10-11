@@ -19,22 +19,23 @@ ESC_ARM_DELAY_MS = 7000
 class RoboatSM():
     """Power-management state machine.
 
-    The Pi's power is only ever cut deliberately: when main power is lost, or
-    after a requested shutdown. Startup leaves the relay as it finds it, so an
-    RP2040 reset doesn't take the Pi down with it.
+    The Pi's power is only ever changed deliberately, and each change is passed
+    to record_pi_power(on) so boot.py can restore it after a watchdog reset.
+    The FSM never touches the relay at startup; boot.py has already set it.
 
     schedule(delay_ms, fn) must call fn later from the main loop, never from an
     interrupt, so that dispatches can't nest.
     """
 
     def __init__(self, neopixel, pi_power_pin, drive_power_pin, drive_pwm,
-                 schedule, on_pi_power_on=None):
+                 schedule, on_pi_power_on=None, record_pi_power=None):
         self.neopixel_ = neopixel
         self.pi_power_ = pi_power_pin
         self.drive_power_ = drive_power_pin
         self.drive_pwm_ = drive_pwm
         self.schedule_ = schedule
         self.on_pi_power_on_ = on_pi_power_on
+        self.record_pi_power_ = record_pi_power
         self.sm = self._get_state_machine()
         self.drive_power_.off()
         self._set_led(2, 2, 2)
@@ -100,6 +101,14 @@ class RoboatSM():
     def state(self):
         return self.sm.leaf_state.name
 
+    def _set_pi_power(self, on):
+        if on:
+            self.pi_power_.on()
+        else:
+            self.pi_power_.off()
+        if self.record_pi_power_ is not None:
+            self.record_pi_power_(on)
+
     def _set_led(self, r, g, b):
         self.neopixel_[0] = (r, g, b)
         self.neopixel_.write()
@@ -111,7 +120,7 @@ class RoboatSM():
     def enter_no_main_power(self, state, event):
         print('enter state {0}'.format(state.name))
         self._set_led(2, 0, 0)
-        self.pi_power_.off()
+        self._set_pi_power(False)
         self.drive_power_.off()
 
     def enter_pi_off(self, state, event):
@@ -121,7 +130,7 @@ class RoboatSM():
     def start_pi(self, state, event):
         print("Enabling power to RPi.")
         was_on = self.pi_power_.value()
-        self.pi_power_.on()
+        self._set_pi_power(True)
         if not was_on and self.on_pi_power_on_ is not None:
             self.on_pi_power_on_()
 
@@ -141,7 +150,7 @@ class RoboatSM():
 
     def cut_pi_power(self, state, event):
         print("Cutting power to RPi.")
-        self.pi_power_.off()
+        self._set_pi_power(False)
 
     def on_enter(self, state, event):
         print('enter state {0}'.format(state.name))

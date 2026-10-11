@@ -29,11 +29,15 @@ There are two compute elements of interest when it comes to understanding the ov
 
 The RP2040 must be able to restart, crash, or be reprogrammed without taking the Pi down with it, and must never leave the Pi half-powered.
 
-- The Pi's power relay (GPIO11, high = on) has a 10k pull-up to 3.3V, so it stays on while the RP2040 is in reset. `boot.py` then drives it high before anything else runs.
-- The firmware only cuts Pi power deliberately: on loss of main power, or after a requested shutdown. Startup leaves the relay as it finds it.
+- The Pi's power relay (GPIO11, high = on) has a 10k pull-up to 3.3V, so it stays on while the RP2040 is in reset. `boot.py` settles it before anything else runs (`power_policy.py`):
+  - Power-on reset (a cold start, including the reset button): Pi off. The whole system may be waking at dawn on a nearly empty battery, and the Pi must not start, brown out, and repeat. It starts only when the FSM's energy rules allow.
+  - Watchdog reset (a crash, a hang, or the reset at the end of a deploy): restore the relay state the firmware last chose deliberately, which it records in a `pi_power` file on each change.
+  - Soft reset (Ctrl-D): leave the relay alone.
+- The firmware only changes Pi power deliberately: starting it when energy allows, and cutting it on loss of main power or after a requested shutdown.
+- The pull-up holds the relay on for the moment between the RP2040 powering up and `boot.py` running. At a dawn wake-up that only happens once the MPPT's load output has reconnected.
 - No other connection may supply power to the Pi while the relay is off (see the USB note above). With the relay off, the Pi's red LED must go fully dark.
 - The watchdog is fed only while the main loop is running, so a crash or hang ends in a reset. Interrupting the main loop from the console (Ctrl-C, as a deploy does) holds the watchdog off for 15 minutes. A `nowdt` file on the RP2040 disables it for bench work.
-- After three consecutive boots that crash before running healthily for a minute, the RP2040 comes up in safe mode: watchdog off, Pi powered, REPL free for a deploy to repair it. Crashes are logged to `crash.log` on the RP2040.
+- After three consecutive boots that crash before running healthily for a minute, the RP2040 comes up in safe mode: watchdog off, relay left as `boot.py` set it, REPL free for a deploy to repair it. Safe mode retries normal operation after an hour. Crashes are logged to `crash.log` on the RP2040.
 
 ### States
 

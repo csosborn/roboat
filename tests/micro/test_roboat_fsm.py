@@ -10,9 +10,11 @@ class Harness:
         self.drive = FakePin(1)
         self.scheduled = []
         self.power_on_calls = 0
+        self.recorded = []
         self.sm = fsm.RoboatSM(FakeNeoPixel(), self.pi, self.drive, FakePWM(),
                                schedule=lambda ms, fn: self.scheduled.append((ms, fn)),
-                               on_pi_power_on=self._powered_on)
+                               on_pi_power_on=self._powered_on,
+                               record_pi_power=self.recorded.append)
 
     def _powered_on(self):
         self.power_on_calls += 1
@@ -85,4 +87,29 @@ def test_requested_shutdown_cuts_power_after_wait():
     assert [ms for ms, _ in h.scheduled] == [fsm.PI_SHUTDOWN_WAIT_MS]
     h.run_scheduled()
     assert h.sm.state == 'PiOff'
+    assert h.pi.value() == 0
+
+
+def test_deliberate_power_changes_are_recorded_and_startup_records_nothing():
+    h = Harness(pi_on=False)
+    assert h.recorded == []
+    h.sm.dispatch(fsm.MAIN_POWER_UP)
+    h.sm.dispatch(fsm.ENERGY_OK)
+    h.sm.dispatch(fsm.START_PI)
+    h.sm.dispatch(fsm.PI_HEARTBEAT)
+    h.sm.dispatch(fsm.STOP_PI)
+    h.run_scheduled()
+    h.sm.dispatch(fsm.MAIN_POWER_DOWN)
+    assert h.recorded == [True, False, False]
+
+
+def test_cold_start_waits_for_energy_before_starting_pi():
+    # boot.py leaves the Pi off after a power-on reset; a few watts of dawn
+    # sun must not be enough to start it.
+    h = Harness(pi_on=False)
+    h.sm.dispatch(fsm.MAIN_POWER_UP)
+    for _ in range(3):
+        h.sm.dispatch(fsm.ENERGY_LOW)
+        h.sm.dispatch(fsm.START_PI)
+    assert h.sm.state == 'AwaitPower'
     assert h.pi.value() == 0

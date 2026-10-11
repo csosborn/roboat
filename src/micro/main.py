@@ -5,6 +5,7 @@ from neopixel import NeoPixel
 import time
 
 import supervisor
+import power_policy
 from roboat_fsm import RoboatSM, START_PI
 from power_monitor import PowerMonitor
 from battery_model import BatteryModel
@@ -29,11 +30,15 @@ START_PI_INTERVAL_MS = 10000
 # once it should be ready, and again in case it was slow.
 USB_RECONNECT_DELAYS_MS = (20000, 60000)
 MAX_PENDING = 32
+SAFE_MODE_RETRY_MS = 3600000
 
 boot_ms = time.ticks_ms()
 boot_number, safe_mode = supervisor.record_boot()
 
-pi_power = Pin(PI_POWER_PIN, Pin.OUT, value=1)
+# boot.py has already chosen the relay level; keep it, but make sure the pin
+# is an output even if boot.py didn't run.
+pi_power = Pin(PI_POWER_PIN)
+pi_power = Pin(PI_POWER_PIN, Pin.OUT, value=pi_power.value())
 np = NeoPixel(Pin(NEOPIXEL_PIN, Pin.OUT), 1)
 
 # Both built-in UARTs are used, one for bidirectional communication with the RPi and one
@@ -62,8 +67,15 @@ def run_safe_mode():
     np[0] = (2, 0, 2)
     np.write()
     pi_link.send_update("status", status_fields(mode="safe"))
-    print("SAFE MODE after {} boots without a healthy run. The watchdog is off and "
-          "the Pi is powered. Fix or redeploy, delete 'bootcount', then reset.".format(boot_number))
+    print("SAFE MODE after {} boots without a healthy run. The watchdog is off and the Pi "
+          "relay is left as boot.py set it. Normal operation is retried in {} minutes."
+          .format(boot_number, SAFE_MODE_RETRY_MS // 60000))
+
+    def retry(t):
+        supervisor.mark_healthy()
+        machine.reset()
+
+    Timer(period=SAFE_MODE_RETRY_MS, mode=Timer.ONE_SHOT, callback=retry)
 
 
 def run():
@@ -99,7 +111,8 @@ def run():
             schedule(delay, reconnect_usb)
 
     roboat = RoboatSM(neopixel=np, pi_power_pin=pi_power, drive_power_pin=drive_power,
-                      drive_pwm=esc, schedule=schedule, on_pi_power_on=on_pi_power_on)
+                      drive_pwm=esc, schedule=schedule, on_pi_power_on=on_pi_power_on,
+                      record_pi_power=power_policy.ChoiceRecorder())
 
     monitor = PowerMonitor(make_ina, VictronMPPT(mppt_uart), pi_link,
                            BatteryModel(nominal_v=12.8, nominal_ah=20), LFPSoCEstimator(),
