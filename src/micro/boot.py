@@ -6,7 +6,7 @@ from machine import Pin, mem32
 PI_POWER_PIN = 11
 
 # IO_BANK0 GPIO11_CTRL. Any hard reset sets FUNCSEL to 0x1f (no function);
-# it reads 5 (SIO) only if main.py is still driving the pin, i.e. after a
+# it reads 5 (SIO) only if the firmware is still driving the pin, i.e. after a
 # soft reset.
 GPIO_CTRL = 0x40014000 + 8 * PI_POWER_PIN + 4
 FUNCSEL_SIO = 5
@@ -20,5 +20,5 @@ try:
     if level is not None:
         Pin(PI_POWER_PIN, Pin.OUT, value=level)
 except Exception:
-    # Leave the relay to the hardware pull-up (on); main.py takes over.
+    # Leave the relay to the hardware pull-up (on); app.py takes over.
     pass
