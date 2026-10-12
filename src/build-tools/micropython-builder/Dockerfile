@@ -34,10 +34,10 @@ RUN git clone --depth=1 https://github.com/v923z/micropython-ulab ulab
 
 # Clone the MicroPython repository
 RUN git clone --depth=1 https://github.com/micropython/micropython.git micropython
-RUN cd /workspace/micropython && git submodule update --init lib/tinyusb && git submodule update --init lib/pico-sdk
+RUN cd /workspace/micropython && git submodule update --init lib/tinyusb && git submodule update --init lib/pico-sdk && git submodule update --init lib/lwip && git submodule update --init lib/btstack
 RUN cd /workspace/micropython/lib/pico-sdk && git submodule update --init lib/tinyusb
 
-# Build mpy-cross as per MicroPython instructions
+# Build mpy-cross per MicroPython instructions
 RUN cd /workspace/micropython/mpy-cross && make
 
 # Build rp2 submodules

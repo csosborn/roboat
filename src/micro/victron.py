@@ -27,7 +27,7 @@ class VictronMPPT:
 
 
     def update_str(self, mppt_str):
-        match = re.search("^([\w\#]+)\s([\w\.\-]+)\s+?$", mppt_str)
+        match = re.search(r"^([\w\#]+)\s([\w\.\-]+)\s+?$", mppt_str)
         if match:
             self.fields_[match.group(1)] = match.group(2)
             key = match.group(1)
@@ -53,3 +53,4 @@ class VictronMPPT:
                 self.active = True
                 self.epoch = self.epoch + 1
             
+

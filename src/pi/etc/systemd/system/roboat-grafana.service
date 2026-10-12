@@ -4,11 +4,12 @@ Requires=roboat-tig.service
 After=roboat-tig.service
 
 [Service]
-Type=oneshot
+Type=simple
 WorkingDirectory=/home/csosborn/roboat/src/pi/TIG
 ExecStart=/usr/bin/docker-compose --profile interactive up --detach
 ExecStop=/usr/bin/docker-compose --profile interactive down
 RemainAfterExit=yes
+Restart=always
 
 [Install]
 WantedBy=multi-user.target

@@ -9,7 +9,7 @@ sudo apt remove rpi-connect
 
 ``` 
 sudo apt-get update
-sudo apt install gpsd
+sudo apt install chrony   # replaces systemd-timesyncd; see src/pi/etc/chrony
 
 curl -fsSL https://tailscale.com/install.sh | sh
 
@@ -37,3 +37,16 @@ In /boot/firmware/config.txt:
 enable_uart=1
 dtoverlay=uart3
 ```
+
+## Configure Secrets
+
+Credentials live in `*.env` files in this directory, which are gitignored. Create each one from its template and fill in real values:
+
+```
+cp telegraf.env.example telegraf.env
+cp influxdb.env.example influxdb.env
+cp grafana.env.example grafana.env
+cp ../monitor/monitor.env.example ../monitor/monitor.env
+```
+
+Telegraf and the monitor service use separate InfluxDB tokens. Telegraf's (in `telegraf.env`) writes the `compute` bucket. The monitor's (in `src/pi/monitor/monitor.env`, loaded by `roboat-monitor.service`) writes the `roboat_01` bucket.
