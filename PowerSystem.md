@@ -3,7 +3,8 @@
 ## Component Selection
 
 ### Battery
-- [Epoch 12v 50Ah LiFePo4 battery](https://www.epochbatteries.com/products/12v-50ah-bluetooth-lifepo4-deep-cycle-battery-epoch-essentials
+- In use: a 12 V 20 Ah LiFePO4 pack (about 256 Wh). The firmware's battery model and low-battery thresholds assume it.
+- Tested earlier but too large for the hull: [Epoch 12v 50Ah LiFePo4 battery](https://www.epochbatteries.com/products/12v-50ah-bluetooth-lifepo4-deep-cycle-battery-epoch-essentials
 )
 - 14.3 lbs
 - 7.75" long, 6.5" wide, 7" tall
