@@ -1,6 +1,6 @@
 import time
 
-from roboat_fsm import MAIN_POWER_UP, MAIN_POWER_DOWN, ENERGY_OK, ENERGY_LOW
+from roboat_fsm import MAIN_POWER_UP, MAIN_POWER_DOWN, ENERGY_OK, ENERGY_LOW, BATTERY_LOW
 
 INA_INTERVAL_MS = 1000
 INA_REINIT_AFTER_ERRORS = 5
@@ -15,6 +15,17 @@ MAIN_POWER_UP_V = 12.6
 MAIN_POWER_DOWN_V = 12.4
 ENERGY_OK_V = 13.5
 ENERGY_OK_PANEL_W = 10
+
+# Shut the Pi down cleanly once the battery has stayed below PI_SHUTDOWN_V for
+# PI_SHUTDOWN_HOLD_MS (a brief dip under load doesn't count), leaving the rest
+# of the battery for the RP2040 and GPS. For LiFePO4 at the boat's light
+# loads, 12.8 V is roughly 15-20% charge. The low reading only clears above
+# PI_SHUTDOWN_CLEAR_V. The hard cutoff at MAIN_POWER_DOWN_V is the failsafe.
+PI_SHUTDOWN_V = 12.8
+PI_SHUTDOWN_CLEAR_V = 12.9
+PI_SHUTDOWN_HOLD_MS = 120000
+# Energy is only "OK" for starting the Pi once the battery has recovered this far.
+PI_RESTART_MIN_V = 13.0
 
 
 class PowerMonitor:
@@ -39,6 +50,9 @@ class PowerMonitor:
         self.mppt_epoch_ = mppt.epoch
         self.mppt_frames_ = 0
         self.main_power_ = None
+        self.low_since_ms_ = None
+        self.last_assess_ms_ = None
+        self.battery_v = None
 
         self.logic_charge_as_ = 0.0
         self.ina_errors = 0
@@ -82,7 +96,7 @@ class PowerMonitor:
         })
 
         if self._mppt_stale(now_ms):
-            self._assess_main_power(voltage)
+            self._assess_battery(voltage, now_ms)
 
     def _mppt_stale(self, now_ms):
         return (self.last_mppt_ms_ is None
@@ -114,12 +128,14 @@ class PowerMonitor:
             "sol_v": mppt.panel_volts,
             "sol_p": mppt.panel_watts,
             "load_i": mppt.load_amps,
+            "load_on": 1 if mppt.load_on else 0,
             "mppt_total_kwh": mppt.yield_total_kwh
         })
         self._update_battery_model(now_ms)
 
-        self._assess_main_power(mppt.battery_volts)
-        if mppt.battery_volts > ENERGY_OK_V or mppt.panel_watts > ENERGY_OK_PANEL_W:
+        self._assess_battery(mppt.battery_volts, now_ms)
+        if ((mppt.battery_volts > ENERGY_OK_V or mppt.panel_watts > ENERGY_OK_PANEL_W)
+                and mppt.battery_volts >= PI_RESTART_MIN_V):
             self.dispatch_(ENERGY_OK)
         else:
             self.dispatch_(ENERGY_LOW)
@@ -136,9 +152,28 @@ class PowerMonitor:
                 "soc": self.soc_estimator_.soc
             })
 
-    def _assess_main_power(self, volts):
+    @property
+    def battery_low_s(self):
+        """How long the battery has been below PI_SHUTDOWN_V, in seconds (0 if not)."""
+        if self.low_since_ms_ is None or self.last_assess_ms_ is None:
+            return 0
+        return time.ticks_diff(self.last_assess_ms_, self.low_since_ms_) // 1000
+
+    def _assess_battery(self, volts, now_ms):
         if volts <= 0:
             return
+        self.battery_v = volts
+        self.last_assess_ms_ = now_ms
+        self._assess_main_power(volts)
+        if volts < PI_SHUTDOWN_V:
+            if self.low_since_ms_ is None:
+                self.low_since_ms_ = now_ms
+            if time.ticks_diff(now_ms, self.low_since_ms_) >= PI_SHUTDOWN_HOLD_MS:
+                self.dispatch_(BATTERY_LOW)
+        elif volts >= PI_SHUTDOWN_CLEAR_V:
+            self.low_since_ms_ = None
+
+    def _assess_main_power(self, volts):
         if self.main_power_ is not True and volts > MAIN_POWER_UP_V:
             self.main_power_ = True
         elif self.main_power_ is not False and volts < MAIN_POWER_DOWN_V:

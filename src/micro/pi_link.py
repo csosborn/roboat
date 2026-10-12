@@ -36,6 +36,12 @@ class PiLink:
         self.uart_.write(json.dumps(msg))
         self.uart_.write("\r\n")
 
+    def send_request(self, action, **fields):
+        """Ask the Pi to do something. Never stored or replayed."""
+        fields["action"] = action
+        self.uart_.write(json.dumps(self.message("request", fields)))
+        self.uart_.write("\r\n")
+
     def send_line(self, line):
         """Send an already-encoded message line (e.g. a stored record)."""
         self.uart_.write(line)

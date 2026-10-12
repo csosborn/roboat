@@ -1,5 +1,5 @@
 import power_monitor as pm
-from roboat_fsm import MAIN_POWER_UP, MAIN_POWER_DOWN, ENERGY_OK, ENERGY_LOW
+from roboat_fsm import MAIN_POWER_UP, MAIN_POWER_DOWN, ENERGY_OK, ENERGY_LOW, BATTERY_LOW
 
 
 class FakeINA:
@@ -35,6 +35,7 @@ class FakeMPPT:
         self.panel_watts = 0
         self.load_amps = 0
         self.tracker_mode = 0
+        self.load_on = True
         self.yield_total_kwh = 0
         self.raise_on_update = None
 
@@ -158,3 +159,39 @@ def test_mppt_parse_errors_are_counted():
     mppt.raise_on_update = ValueError("bad field")
     assert mon.step(1) is False
     assert mon.mppt_errors == 1
+
+
+def frames(mon, mppt, volts, start_ms, count, step_ms=1000, panel_w=0):
+    t = start_ms
+    for _ in range(count):
+        mppt.frame(volts, panel_w)
+        mon.step(t)
+        t += step_ms
+    return t
+
+
+def test_battery_low_needs_a_sustained_low_voltage():
+    mon, mppt, events, _ = make()
+    t = frames(mon, mppt, 13.0, 0, 2)
+    t = frames(mon, mppt, 12.7, t, 60)  # one minute low: not yet
+    assert BATTERY_LOW not in events
+    t = frames(mon, mppt, 12.85, t, 30)  # inside the band: still counting
+    t = frames(mon, mppt, 12.7, t, 40)
+    assert BATTERY_LOW in events
+
+
+def test_recovery_above_the_clear_level_resets_the_timer():
+    mon, mppt, events, _ = make()
+    t = frames(mon, mppt, 13.0, 0, 2)
+    t = frames(mon, mppt, 12.7, t, 100)
+    t = frames(mon, mppt, 12.95, t, 1)
+    t = frames(mon, mppt, 12.7, t, 100)
+    assert BATTERY_LOW not in events
+
+
+def test_sun_alone_does_not_restart_the_pi_on_a_flat_battery():
+    mon, mppt, events, _ = make()
+    t = frames(mon, mppt, 12.9, 0, 3, panel_w=40)
+    assert ENERGY_OK not in events
+    frames(mon, mppt, 13.3, t, 1, panel_w=40)
+    assert events[-1] == ENERGY_OK

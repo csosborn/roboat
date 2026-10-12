@@ -7,7 +7,7 @@ import time
 
 import supervisor
 import power_policy
-from roboat_fsm import RoboatSM, START_PI, PI_HEARTBEAT, PI_HEARTBEAT_TO
+from roboat_fsm import RoboatSM, START_PI, PI_HEARTBEAT, PI_HEARTBEAT_TO, PI_STOPPED
 from power_monitor import PowerMonitor
 from battery_model import BatteryModel
 from soc_estimator import LFPSoCEstimator
@@ -19,6 +19,7 @@ from gps import GpsMonitor
 from shared_bus import SharedBus
 from scheduler import Scheduler
 from telemetry_log import TelemetryLog
+from pi_shutdown import PiShutdown
 
 try:
     from version import VERSION
@@ -126,9 +127,18 @@ def run():
     def schedule(delay_ms, fn):
         tasks.after(delay_ms, fn)
 
+    shutdown = PiShutdown()
+
+    def request_pi_shutdown():
+        shutdown.start(time.ticks_ms(), "low_battery")
+
+    def report_event(event, **fields):
+        report(event=event, **fields)
+
     roboat = RoboatSM(neopixel=np, pi_power_pin=pi_power, drive_power_pin=drive_power,
                       drive_pwm=esc, schedule=schedule,
-                      record_pi_power=power_policy.ChoiceRecorder())
+                      record_pi_power=power_policy.ChoiceRecorder(),
+                      request_pi_shutdown=request_pi_shutdown, notify=report_event)
 
     monitor = PowerMonitor(make_ina, VictronMPPT(mppt_uart), pi_link,
                            BatteryModel(nominal_v=12.8, nominal_ah=20), LFPSoCEstimator(),
@@ -155,16 +165,25 @@ def run():
             mppt_errors=monitor.mppt_errors, gps_mode=gps.mode, gps_errors=gps.errors,
             gps_fixes=gps.fixes, time_valid=clock.valid, i2c_rebuilds=i2c1.rebuilds,
             pi_up=1 if presence.listening else 0, fs_free_kb=fs_free_kb(),
-            log_unstorable=unstorable[0], **extra)
+            log_unstorable=unstorable[0], battery_v=monitor.battery_v,
+            battery_low_s=monitor.battery_low_s,
+            restart_blocked=1 if roboat.restart_blocked_ else 0, **extra)
         if tlog is not None:
             fields.update(log_backlog=tlog.backlog, log_bytes=tlog.stored_bytes,
                           log_dropped=tlog.dropped, log_replayed=tlog.replayed)
         else:
             fields.update(log_error=1)
-        return fields
+        return {k: v for k, v in fields.items() if v is not None}
 
     def send_status(**extra):
         pi_link.send_update("status", current_status(**extra))
+
+    def report(**extra):
+        """A status record that must not be lost: stored if the Pi isn't listening."""
+        if presence.listening:
+            send_status(**extra)
+        elif tlog is not None:
+            store(pi_link.message("status", current_status(**extra)), time.ticks_ms())
 
     def store(msg, now):
         if "utc_ms" in msg:
@@ -228,6 +247,11 @@ def run():
             if not presence.listening and time.ticks_diff(now, last_snapshot_ms) >= SNAPSHOT_INTERVAL_MS:
                 store_snapshot(now)
                 last_snapshot_ms = now
+            if shutdown.step(now, presence.listening,
+                             lambda reason: pi_link.send_request("shutdown", reason=reason)):
+                if shutdown.timed_out:
+                    report(event="pi_shutdown_timeout")
+                roboat.dispatch(PI_STOPPED)
             if tlog is not None:
                 tlog.step(now, presence.listening, pi_link.send_line)
             gps.step(now)

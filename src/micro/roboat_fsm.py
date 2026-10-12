@@ -11,8 +11,12 @@ PI_HEARTBEAT_TO = 'pi_hb_to'
 STOP_PI = 'stop_pi'
 PI_STOPPED = 'pi_stopped'
 START_DRIVE = 'start_drive'
+BATTERY_LOW = 'battery_low'
 
 PI_SHUTDOWN_WAIT_MS = 30000
+# After a deliberate shutdown, don't restart the Pi for this long, so a
+# marginal battery can't cycle it on and off.
+PI_RESTART_HOLDOFF_MS = 15 * 60 * 1000
 ESC_ARM_DELAY_MS = 7000
 
 
@@ -25,10 +29,17 @@ class RoboatSM():
 
     schedule(delay_ms, fn) must call fn later from the main loop, never from an
     interrupt, so that dispatches can't nest.
+
+    A low battery (BATTERY_LOW) or STOP_PI shuts the Pi down cleanly: entering
+    PiStopping calls request_pi_shutdown(), and whoever runs that sequence
+    dispatches PI_STOPPED once the Pi has halted, which cuts its power.
+    Without that hook, PI_STOPPED simply follows after PI_SHUTDOWN_WAIT_MS.
+    notify(event, **fields) reports power events for the telemetry record.
     """
 
     def __init__(self, neopixel, pi_power_pin, drive_power_pin, drive_pwm,
-                 schedule, on_pi_power_on=None, record_pi_power=None):
+                 schedule, on_pi_power_on=None, record_pi_power=None,
+                 request_pi_shutdown=None, notify=None):
         self.neopixel_ = neopixel
         self.pi_power_ = pi_power_pin
         self.drive_power_ = drive_power_pin
@@ -36,6 +47,9 @@ class RoboatSM():
         self.schedule_ = schedule
         self.on_pi_power_on_ = on_pi_power_on
         self.record_pi_power_ = record_pi_power
+        self.request_pi_shutdown_ = request_pi_shutdown
+        self.notify_ = notify
+        self.restart_blocked_ = False
         self.sm = self._get_state_machine()
         self.drive_power_.off()
         self._set_led(2, 2, 2)
@@ -75,15 +89,20 @@ class RoboatSM():
         sm.add_transition(init_s, no_main_power_sm, events=[MAIN_POWER_DOWN])
         sm.add_transition(no_main_power_sm, main_power_sm, events=[MAIN_POWER_UP])
         sm.add_transition(main_power_sm, no_main_power_sm, events=[MAIN_POWER_DOWN])
-        main_power_sm.add_transition(await_power_s, pi_off_s, events=[ENERGY_OK])
+        main_power_sm.add_transition(await_power_s, pi_off_s, events=[ENERGY_OK],
+                                     condition=self._restart_allowed)
         main_power_sm.add_transition(await_power_s, no_pi_comms_s, events=[PI_ALREADY_ON])
         main_power_sm.add_transition(pi_off_s, await_power_s, events=[ENERGY_LOW])
         main_power_sm.add_transition(pi_off_s, no_pi_comms_s, events=[START_PI], action=self.start_pi)
         main_power_sm.add_transition(no_pi_comms_s, pi_alive_s, events=[PI_HEARTBEAT])
         main_power_sm.add_transition(pi_alive_s, no_pi_comms_s, events=[PI_HEARTBEAT_TO])
-        main_power_sm.add_transition(pi_alive_s, pi_stopping_s, events=[STOP_PI], action=self.stop_pi)
+        main_power_sm.add_transition(pi_alive_s, pi_stopping_s, events=[STOP_PI, BATTERY_LOW],
+                                     action=self.stop_pi)
+        main_power_sm.add_transition(no_pi_comms_s, pi_stopping_s, events=[STOP_PI, BATTERY_LOW],
+                                     action=self.stop_pi)
         main_power_sm.add_transition(no_pi_comms_s, None, events=[START_DRIVE], action=self.start_drive)
-        main_power_sm.add_transition(pi_stopping_s, pi_off_s, events=[PI_STOPPED], action=self.cut_pi_power)
+        main_power_sm.add_transition(pi_stopping_s, await_power_s, events=[PI_STOPPED],
+                                     action=self.cut_pi_power)
 
         # Attach enter/exit handlers
         states = [sm, no_main_power_sm, main_power_sm, init_s, monitor_s,
@@ -120,6 +139,8 @@ class RoboatSM():
     def enter_no_main_power(self, state, event):
         print('enter state {0}'.format(state.name))
         self._set_led(2, 0, 0)
+        if self.pi_power_.value():
+            self._notify("pi_power_cut", reason="main_power_lost")
         self._set_pi_power(False)
         self.drive_power_.off()
 
@@ -131,6 +152,8 @@ class RoboatSM():
         print("Enabling power to RPi.")
         was_on = self.pi_power_.value()
         self._set_pi_power(True)
+        if not was_on:
+            self._notify("pi_power_on")
         if not was_on and self.on_pi_power_on_ is not None:
             self.on_pi_power_on_()
 
@@ -146,11 +169,28 @@ class RoboatSM():
 
     def stop_pi(self, state, event):
         print("Signaling RPi to shut down.")
-        self.schedule_(PI_SHUTDOWN_WAIT_MS, lambda: self.dispatch(PI_STOPPED))
+        self._notify("pi_shutdown_requested", reason=event.name)
+        if self.request_pi_shutdown_ is not None:
+            self.request_pi_shutdown_()
+        else:
+            self.schedule_(PI_SHUTDOWN_WAIT_MS, lambda: self.dispatch(PI_STOPPED))
 
     def cut_pi_power(self, state, event):
         print("Cutting power to RPi.")
         self._set_pi_power(False)
+        self._notify("pi_power_cut", reason="shutdown")
+        self.restart_blocked_ = True
+        self.schedule_(PI_RESTART_HOLDOFF_MS, self._allow_restart)
+
+    def _allow_restart(self):
+        self.restart_blocked_ = False
+
+    def _restart_allowed(self, state, event):
+        return not self.restart_blocked_
+
+    def _notify(self, event, **fields):
+        if self.notify_ is not None:
+            self.notify_(event, **fields)
 
     def on_enter(self, state, event):
         print('enter state {0}'.format(state.name))
