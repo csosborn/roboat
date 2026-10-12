@@ -40,6 +40,12 @@ The RP2040 must be able to restart, crash, or be reprogrammed without taking the
 - The watchdog is fed only while the main loop is running, so a crash or hang ends in a reset. Interrupting the main loop from the console (Ctrl-C, as a deploy does) holds the watchdog off for 15 minutes. A `nowdt` file on the RP2040 disables it for bench work.
 - After three consecutive boots that crash before running healthily for a minute, the RP2040 comes up in safe mode: watchdog off, relay left as `boot.py` set it, REPL free for a deploy to repair it. Safe mode retries normal operation after an hour. Crashes are logged to `crash.log` on the RP2040.
 
+### Time and telemetry
+
+- The RP2040 keeps UTC from the GPS and stamps every message with it (`utc_ms`). The Pi's monitor writes points with that time, and feeds the GPS time from live fixes to chrony as a reference clock, so the Pi's clock is right without the internet. Internet NTP is preferred when it's reachable, because GPS time without a PPS signal is only good to about 0.1 s.
+- The monitor sends a heartbeat (`{"cmd": "hb", "ack": N}`) every 2 s over the UART. Without one for 10 s, the RP2040 treats the Pi as down. Its FSM moves from PiAlive to NoPiComms, and every 30 s it stores a snapshot of its latest readings and status on flash (`telemetry_log.py`, capped at 2 MB, dropping the oldest first). When heartbeats resume, it replays the log alongside live data. `ack` is the highest replayed sequence number the monitor has written to InfluxDB; records are deleted only once acknowledged.
+- Every status record carries `pi_up`, and records made while the Pi is down are replayed, so the Pi's up/down history in `rp2040_status` has no gaps.
+
 ### States
 
 - Init: initial state, where no information about the system is yet available. The Pi's power is left alone until the first battery voltage reading.

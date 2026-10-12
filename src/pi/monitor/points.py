@@ -5,7 +5,7 @@ is timestamped with it. Otherwise InfluxDB stamps it on arrival with the Pi's
 clock, which may be wrong after a boot until it syncs.
 """
 
-ENVELOPE = ("src", "offset_s", "utc_ms")
+ENVELOPE = ("src", "offset_s", "utc_ms", "seq")
 
 
 def _status(m):

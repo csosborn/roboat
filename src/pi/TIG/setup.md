@@ -9,6 +9,7 @@ sudo apt remove rpi-connect
 
 ``` 
 sudo apt-get update
+sudo apt install chrony   # replaces systemd-timesyncd; see src/pi/etc/chrony
 
 curl -fsSL https://tailscale.com/install.sh | sh
 

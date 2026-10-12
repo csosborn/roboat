@@ -20,19 +20,28 @@ changed() {
     ! git diff --quiet "$old" "$new" -- "$@"
 }
 
-# systemd units: install any that differ from what's installed, whatever the
-# reason (this also catches hand edits on the Pi).
+# System configuration: install any file under src/pi/etc that differs from
+# its copy under /etc, whatever the reason (this also catches hand edits on
+# the Pi).
 installed_units=()
-for unit in src/pi/etc/systemd/system/*.service; do
-    dest=/etc/systemd/system/$(basename "$unit")
-    if ! cmp -s "$unit" "$dest"; then
-        sudo install -m 644 "$unit" "$dest"
-        installed_units+=("$(basename "$unit" .service)")
+chrony_changed=
+while IFS= read -r src; do
+    dest=/etc/${src#src/pi/etc/}
+    if ! cmp -s "$src" "$dest"; then
+        sudo install -D -m 644 "$src" "$dest"
+        echo "Installed $dest"
+        case $dest in
+            /etc/systemd/system/*.service) installed_units+=("$(basename "$dest" .service)") ;;
+            /etc/chrony/*) chrony_changed=1 ;;
+        esac
     fi
-done
+done < <(find src/pi/etc -type f | sort)
 if [ ${#installed_units[@]} -gt 0 ]; then
-    echo "Installed systemd units: ${installed_units[*]}"
     sudo systemctl daemon-reload
+fi
+if [ -n "$chrony_changed" ]; then
+    echo "Restarting chrony"
+    sudo systemctl restart chrony
 fi
 
 # Monitor

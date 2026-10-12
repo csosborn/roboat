@@ -1,5 +1,4 @@
 from serial import Serial
-import json
 import os
 import sys
 import time
@@ -7,7 +6,8 @@ import time
 import influxdb_client
 from influxdb_client.client.write_api import SYNCHRONOUS
 
-from points import to_point
+from link import LineReader, handle, heartbeat
+from timesync import ChronyRefclock
 from writer import QueuedWriter
 
 bucket = "roboat_01"
@@ -17,9 +17,14 @@ token = os.environ.get("INFLUX_TOKEN")
 if not token:
     sys.exit("INFLUX_TOKEN is not set; see src/pi/monitor/monitor.env.example")
 
+PI_LINK_PORT = "/dev/ttyAMA3"
+CHRONY_SOCK = os.environ.get("CHRONY_SOCK", "/run/chrony.rp2040.sock")
+HEARTBEAT_INTERVAL_S = 2.0
+
+
 if __name__ == "__main__":
 
-    ser = Serial('/dev/ttyAMA3', 115200, timeout=0)
+    ser = Serial(PI_LINK_PORT, 115200, timeout=0.05)
 
     client = influxdb_client.InfluxDBClient(
         url=url,
@@ -30,42 +35,22 @@ if __name__ == "__main__":
     # Initialize SYNCHRONOUS instance of WriteApi
     write_api = client.write_api(write_options=SYNCHRONOUS)
     writer = QueuedWriter(lambda point: write_api.write(bucket, org, point))
-
-    buf = ""
+    reader = LineReader()
+    refclock = ChronyRefclock(CHRONY_SOCK)
+    next_heartbeat = 0.0
 
     # main loop
     while True:
-        # read off data coming in from the RP2040
-        s = ser.read()
-        while len(s) > 0:
-            if s[0] == 0xff:
-                break
-            one_char = s.decode("utf-8", errors="replace")
-            s = ser.read()
-            if one_char != "\r":
-                if one_char == "\n":
-                    try:
-                        data = json.loads(buf)
-                    except json.decoder.JSONDecodeError as err:
-                        print(err)
-                        print("Bad buffer: |{}|".format(buf))
-                        buf = ""
-                        continue
-                    buf = ""
-                    print(data)
-
-                    try:
-                        point = to_point(data)
-                    except (KeyError, TypeError, ValueError) as err:
-                        print("Unusable message ({!r}): {}".format(err, data))
-                        continue
-                    if point is not None:
-                        # Without the RP2040's GPS time, stamp on arrival so a point
-                        # that waits in the write queue keeps its real time.
-                        point.setdefault("time", time.time_ns())
-                        writer.write(point)
-                else:
-                    buf += one_char
-
+        # Block briefly for the first byte, then take whatever has arrived,
+        # so lines are timestamped close to when they came in.
+        data = ser.read(1)
+        if data:
+            data += ser.read(ser.in_waiting)
+        arrived = time.time()
+        for line in reader.feed(data):
+            handle(line, arrived, writer, refclock)
         writer.flush()
-        time.sleep(0.1)
+
+        if time.monotonic() >= next_heartbeat:
+            ser.write(heartbeat(writer.acked_seq))
+            next_heartbeat = time.monotonic() + HEARTBEAT_INTERVAL_S
