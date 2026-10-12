@@ -38,7 +38,8 @@ The RP2040 must be able to restart, crash, or be reprogrammed without taking the
 - Once the relay holds through a reset, it will also be on for the moment between the RP2040 powering up and `boot.py` running. At a dawn wake-up that only happens once the MPPT's load output has reconnected.
 - No other connection may supply power to the Pi while the relay is off (see the USB note above). With the relay off, the Pi's red LED must go fully dark.
 - The watchdog is fed only while the main loop is running, so a crash or hang ends in a reset. Interrupting the main loop from the console (Ctrl-C, as a deploy does) holds the watchdog off for 15 minutes. A `nowdt` file on the RP2040 disables it for bench work.
-- After three consecutive boots that crash before running healthily for a minute, the RP2040 comes up in safe mode: watchdog off, relay left as `boot.py` set it, REPL free for a deploy to repair it. Safe mode retries normal operation after an hour. Crashes are logged to `crash.log` on the RP2040.
+- After three consecutive boots that crash before running healthily for a minute, the RP2040 comes up in safe mode: watchdog off, relay left as `boot.py` set it, REPL free for a deploy to repair it. Safe mode retries normal operation after an hour, and puts the REPL on the UART. Crashes are logged to `crash.log` on the RP2040.
+- If the firmware fails before it's running (for example a broken import), `main.py` reports `startup_failed` to the Pi and moves the REPL onto the UART. Every failure short of a hang before the watchdog starts can therefore be repaired with a serial deploy, without USB.
 
 ### Time and telemetry
 
