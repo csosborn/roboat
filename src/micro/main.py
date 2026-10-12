@@ -7,17 +7,18 @@ import time
 
 import supervisor
 import power_policy
-from roboat_fsm import RoboatSM, START_PI
+from roboat_fsm import RoboatSM, START_PI, PI_HEARTBEAT, PI_HEARTBEAT_TO
 from power_monitor import PowerMonitor
 from battery_model import BatteryModel
 from soc_estimator import LFPSoCEstimator
 from victron import VictronMPPT
 from ina260 import INA260
-from pi_link import PiLink
+from pi_link import PiLink, PiPresence
 from clock import Clock
 from gps import GpsMonitor
 from shared_bus import SharedBus
 from scheduler import Scheduler
+from telemetry_log import TelemetryLog
 
 try:
     from version import VERSION
@@ -30,6 +31,8 @@ ESC_PIN = 8
 NEOPIXEL_PIN = 16
 
 STATUS_INTERVAL_MS = 60000
+# While the Pi isn't listening, store a snapshot of the latest readings this often.
+SNAPSHOT_INTERVAL_MS = 30000
 START_PI_INTERVAL_MS = 10000
 SAFE_MODE_RETRY_MS = 3600000
 # Room for a whole deploy chunk (about 1 KB) arriving while the REPL is busy;
@@ -53,7 +56,7 @@ np = NeoPixel(Pin(NEOPIXEL_PIN, Pin.OUT), 1)
 
 # Both built-in UARTs are used, one for bidirectional communication with the RPi and one
 # for receiving data from the Victron MPPT
-rpi_uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1), rxbuf=PI_UART_RXBUF)
+rpi_uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1), rxbuf=PI_UART_RXBUF, txbuf=1024)
 clock = Clock()
 pi_link = PiLink(rpi_uart, clock)
 
@@ -132,12 +135,57 @@ def run():
                            roboat.dispatch, time.ticks_ms())
     gps = GpsMonitor(i2c1, pi_link, clock, time.ticks_ms())
 
-    def send_status(**extra):
-        pi_link.send_update("status", status_fields(
+    presence = PiPresence()
+    try:
+        tlog = TelemetryLog(time.ticks_ms())
+    except OSError:
+        tlog = None
+    unstorable = [0]  # snapshots skipped because GPS time wasn't known yet
+
+    def fs_free_kb():
+        try:
+            st = os.statvfs('/')
+            return st[0] * st[4] // 1024
+        except OSError:
+            return -1
+
+    def current_status(**extra):
+        fields = status_fields(
             state=roboat.state, ina_errors=monitor.ina_errors,
             mppt_errors=monitor.mppt_errors, gps_mode=gps.mode, gps_errors=gps.errors,
             gps_fixes=gps.fixes, time_valid=clock.valid, i2c_rebuilds=i2c1.rebuilds,
-            **extra))
+            pi_up=1 if presence.listening else 0, fs_free_kb=fs_free_kb(),
+            log_unstorable=unstorable[0], **extra)
+        if tlog is not None:
+            fields.update(log_backlog=tlog.backlog, log_bytes=tlog.stored_bytes,
+                          log_dropped=tlog.dropped, log_replayed=tlog.replayed)
+        else:
+            fields.update(log_error=1)
+        return fields
+
+    def send_status(**extra):
+        pi_link.send_update("status", current_status(**extra))
+
+    def store(msg, now):
+        if "utc_ms" in msg:
+            tlog.record(msg, now)
+        else:
+            unstorable[0] += 1
+
+    def store_snapshot(now, **status_extra):
+        if tlog is None:
+            return
+        for src in sorted(pi_link.latest):
+            if src != "status":
+                store(pi_link.latest[src], now)
+        store(pi_link.message("status", current_status(**status_extra)), now)
+
+    def flush_log():
+        if tlog is not None:
+            try:
+                tlog.flush(time.ticks_ms())
+            except OSError:
+                pass
 
     tasks.every(START_PI_INTERVAL_MS, lambda: roboat.dispatch(START_PI))
 
@@ -154,6 +202,7 @@ def run():
 
     send_status(event="boot", wdt=wdt is not None, serial_repl=SERIAL_REPL)
     last_status_ms = time.ticks_ms()
+    last_snapshot_ms = time.ticks_ms()
     healthy = False
 
     try:
@@ -164,6 +213,23 @@ def run():
             for command in pi_link.poll_commands():
                 if command["cmd"] == "maintenance" and SERIAL_REPL:
                     raise MaintenanceRequested()
+                if command["cmd"] == "hb":
+                    came_back = presence.heard(now)
+                    roboat.dispatch(PI_HEARTBEAT)
+                    ack = command.get("ack")
+                    if tlog is not None and isinstance(ack, int):
+                        tlog.ack(ack)
+                    if came_back:
+                        send_status(event="pi_up")
+            if presence.check(now):
+                roboat.dispatch(PI_HEARTBEAT_TO)
+                store_snapshot(now, event="pi_down")
+                last_snapshot_ms = now
+            if not presence.listening and time.ticks_diff(now, last_snapshot_ms) >= SNAPSHOT_INTERVAL_MS:
+                store_snapshot(now)
+                last_snapshot_ms = now
+            if tlog is not None:
+                tlog.step(now, presence.listening, pi_link.send_line)
             gps.step(now)
             if not monitor.step(now):
                 time.sleep_ms(10)
@@ -178,6 +244,7 @@ def run():
         # while; if nobody resets the board by then, it resets itself and
         # resumes normal operation.
         liveness.start_maintenance(time.ticks_ms())
+        flush_log()
         via_pi_link = isinstance(e, MaintenanceRequested)
         send_status(event="maintenance", via="pi_link" if via_pi_link else "console")
         if via_pi_link:
@@ -186,6 +253,7 @@ def run():
               "reset sooner.".format(supervisor.MAINTENANCE_S) if wdt else "Main loop stopped.")
     except Exception as e:
         supervisor.record_crash(e, time.ticks_diff(time.ticks_ms(), boot_ms))
+        flush_log()
         try:
             send_status(event="crash", error=repr(e))
             time.sleep_ms(100)

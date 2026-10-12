@@ -60,3 +60,23 @@ def test_json_without_a_command_is_ignored():
     link = PiLink(uart)
     uart.feed(b'{"src": "status"}\n[1, 2]\n{"cmd": 5}\n')
     assert link.poll_commands() == []
+
+
+def test_presence_follows_heartbeats():
+    from pi_link import PiPresence, HEARTBEAT_TIMEOUT_MS
+    p = PiPresence()
+    assert not p.listening and not p.check(0)
+    assert p.heard(1000) is True
+    assert p.heard(3000) is False
+    assert not p.check(3000 + HEARTBEAT_TIMEOUT_MS)
+    assert p.check(3001 + HEARTBEAT_TIMEOUT_MS) is True
+    assert not p.listening
+    assert p.heard(20000) is True
+
+
+def test_latest_message_kept_per_source():
+    uart = FakeUart()
+    link = PiLink(uart)
+    link.send_update("ina260", {"batt_v": 13.0})
+    link.send_update("ina260", {"batt_v": 13.1})
+    assert link.latest["ina260"]["batt_v"] == 13.1

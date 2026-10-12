@@ -1,6 +1,9 @@
 import json
+import time
 
 MAX_COMMAND = 256
+# The monitor sends a heartbeat every 2 s.
+HEARTBEAT_TIMEOUT_MS = 10000
 
 
 class PiLink:
@@ -16,20 +19,26 @@ class PiLink:
         self.clock_ = clock
         self.rx_ = bytearray()
         self.rx_bad_ = False
+        self.latest = {}  # src -> the last message sent from that source
 
-    def send_update(self, src, data):
-        update_msg = {
-            "offset_s": 0,
-            "src": src
-        }
+    def message(self, src, data):
+        msg = {"offset_s": 0, "src": src}
         if self.clock_ is not None:
             utc_ms = self.clock_.now_ms()
             if utc_ms is not None:
-                update_msg["utc_ms"] = utc_ms
-        update_msg.update(data)
-        update_json = json.dumps(update_msg)
-        self.uart_.write(update_json)
+                msg["utc_ms"] = utc_ms
+        msg.update(data)
+        return msg
+
+    def send_update(self, src, data):
+        msg = self.message(src, data)
+        self.latest[src] = msg
+        self.uart_.write(json.dumps(msg))
         self.uart_.write("\r\n")
+
+    def send_line(self, line):
+        """Send an already-encoded message line (e.g. a stored record)."""
+        self.uart_.write(line)
 
     def poll_commands(self):
         """Returns the commands (dicts with a "cmd" key) received since the last call."""
@@ -67,3 +76,25 @@ class PiLink:
         if isinstance(message, dict) and isinstance(message.get("cmd"), str):
             return message
         return None
+
+
+class PiPresence:
+    """Whether the Pi's monitor is listening, judged by its heartbeats."""
+
+    def __init__(self):
+        self.last_ms_ = None
+        self.listening = False
+
+    def heard(self, now_ms):
+        """Record a heartbeat. Returns True if the Pi was not listening before."""
+        self.last_ms_ = now_ms
+        came_back = not self.listening
+        self.listening = True
+        return came_back
+
+    def check(self, now_ms):
+        """Returns True when heartbeats have just stopped."""
+        if self.listening and time.ticks_diff(now_ms, self.last_ms_) > HEARTBEAT_TIMEOUT_MS:
+            self.listening = False
+            return True
+        return False
