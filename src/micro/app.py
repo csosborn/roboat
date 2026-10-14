@@ -33,7 +33,7 @@ NEOPIXEL_PIN = 16
 
 STATUS_INTERVAL_MS = 60000
 # While the Pi isn't listening, store a snapshot of the latest readings this often.
-SNAPSHOT_INTERVAL_MS = 30000
+SNAPSHOT_INTERVAL_MS = 60000
 START_PI_INTERVAL_MS = 10000
 SAFE_MODE_RETRY_MS = 3600000
 # Room for a whole deploy chunk (about 1 KB) arriving while the REPL is busy;
@@ -191,12 +191,16 @@ def run():
         else:
             unstorable[0] += 1
 
+    snapshotted = {}  # src -> the message last stored for it, so a stale one isn't stored twice
+
     def store_snapshot(now, **status_extra):
         if tlog is None:
             return
         for src in sorted(pi_link.latest):
-            if src != "status":
-                store(pi_link.latest[src], now)
+            msg = pi_link.latest[src]
+            if src != "status" and snapshotted.get(src) is not msg:
+                store(msg, now)
+                snapshotted[src] = msg
         store(pi_link.message("status", current_status(**status_extra)), now)
 
     def flush_log():
