@@ -195,3 +195,45 @@ def test_sun_alone_does_not_restart_the_pi_on_a_flat_battery():
     assert ENERGY_OK not in events
     frames(mon, mppt, 13.3, t, 1, panel_w=40)
     assert events[-1] == ENERGY_OK
+
+
+def power_events(events):
+    return [e for e in events if e in (MAIN_POWER_UP, MAIN_POWER_DOWN)]
+
+
+def test_no_main_power_while_the_load_output_is_off():
+    # The Victron reconnects its load output above 13.2 V, but reports the
+    # battery voltage all along; the Pi must not be started on a dead supply.
+    mon, mppt, events, _ = make()
+    mppt.load_on = False
+    mppt.frame(13.1)
+    mon.step(1)
+    mppt.frame(13.1, panel_w=50)
+    mon.step(2)
+    assert power_events(events) == [MAIN_POWER_DOWN]
+    mppt.load_on = True
+    mppt.frame(13.2, panel_w=50)
+    mon.step(3)
+    assert power_events(events) == [MAIN_POWER_DOWN, MAIN_POWER_UP]
+    assert events[-1] == ENERGY_OK
+
+
+def test_dead_load_bus_on_the_ina_means_no_main_power():
+    mon, mppt, events, _ = make(FakeINA(volts=0.6))
+    mppt.frame(13.3)
+    mon.step(1)
+    mon.step(1000)  # INA sample
+    mppt.frame(13.3, panel_w=50)
+    mon.step(1001)
+    assert MAIN_POWER_UP not in events and power_events(events)[-1] == MAIN_POWER_DOWN
+
+
+def test_unknown_load_state_does_not_block_main_power():
+    mon, mppt, events, _ = make()
+    mppt.load_on = None
+    mppt.frame(13.3)
+    mon.step(1)
+    mppt.frame(13.3)
+    mon.step(2)
+    assert power_events(events) == [MAIN_POWER_UP]
+    assert "load_on" not in mon.pi_link_.sent[-1][1]
