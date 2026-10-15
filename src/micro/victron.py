@@ -15,6 +15,7 @@ class VictronMPPT:
         self.tracker_mode = 0
         self.yield_total_kwh = 0
         self.error = 0
+        self.load_on = False
 
 
     def update(self):
@@ -48,6 +49,8 @@ class VictronMPPT:
                 self.yield_total_kwh = int(val) / 100
             if key == "ERR":
                 self.error = val
+            if key == "LOAD":
+                self.load_on = val == "ON"
 
             if key == 'HSDS':
                 self.active = True

@@ -13,7 +13,7 @@ def _status(m):
 
 
 def _mppt(m):
-    return {
+    fields = {
         "solar_v": m["sol_v"],
         "solar_p": m["sol_p"],
         "tracker_mode": int(m["mppt_mode"]),
@@ -23,6 +23,9 @@ def _mppt(m):
         "batt_i": m["batt_i"],
         "total_energy": m["mppt_total_kwh"],
     }
+    if "load_on" in m:
+        fields["load_on"] = int(m["load_on"])
+    return fields
 
 
 def _ina260(m):

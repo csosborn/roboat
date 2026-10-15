@@ -23,6 +23,7 @@ def test_parses_a_frame():
     assert m.panel_watts == 54
     assert m.load_amps == pytest.approx(0.5)
     assert m.yield_total_kwh == pytest.approx(25.99)
+    assert m.load_on is True
 
 
 def test_frame_joined_part_way_through_lacks_voltage():

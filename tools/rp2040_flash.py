@@ -172,6 +172,29 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
+ATTEMPTS = 3
+
+
+def retrying(repl, what, fn):
+    """Run fn, retrying after a protocol or device error.
+
+    The serial link occasionally corrupts a byte, which can lose a REPL
+    marker or garble a command. Re-entering the raw REPL resynchronises.
+    Every step is safe to repeat, and staged files are verified by hash, so
+    a retry can't leave corrupted data on the board.
+    """
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            return fn()
+        except (DeviceError, TimeoutError, ValueError, SyntaxError) as err:
+            if attempt == ATTEMPTS:
+                raise DeviceError('{} failed {} times; last error: {}'.format(what, ATTEMPTS, err))
+            print('{} failed ({}); retrying'.format(what, err))
+            time.sleep(0.5)
+            repl.enter()
+            repl.exec(DEVICE_HELPERS)
+
+
 def stage(repl, path, data):
     repl.exec('_mkdirs({0!r}); _f = open({1!r}, "wb")'.format(path, path + '.new'))
     for i in range(0, len(data), CHUNK):
@@ -253,9 +276,10 @@ def flash(args, files, paths, port):
             time.sleep(1.0)
         repl.enter()
         repl.exec(DEVICE_HELPERS)
-        on_board = repl.eval('[_hash(p) for p in {!r}]'.format(paths))
+        on_board = retrying(repl, 'Reading the board',
+                            lambda: repl.eval('[_hash(p) for p in {!r}]'.format(paths)))
         changed = [(p, d) for (p, d), h in zip(files, on_board) if h != sha256(d)]
-        previous = repl.eval('_manifest()')
+        previous = retrying(repl, 'Reading the manifest', lambda: repl.eval('_manifest()'))
         stale = sorted(set(previous if previous is not None else LEGACY_FILES)
                        - set(paths) - STATE_FILES)
 
@@ -263,11 +287,16 @@ def flash(args, files, paths, port):
             len(changed), len(files),
             ': ' + ', '.join(p for p, _ in changed) if changed else ''))
         for path, data in changed:
-            stage(repl, path, data)
+            retrying(repl, 'Staging ' + path, lambda: stage(repl, path, data))
         print('All changed files staged and verified.')
 
-        repl.exec('\n'.join(
+        # Safe to repeat: a file already moved into place has no .new left.
+        install = '\n'.join(
             ['for p in {!r}:'.format([p for p, _ in changed]),
+             '    try:',
+             '        os.stat(p + ".new")',
+             '    except OSError:',
+             '        continue',
              '    os.rename(p + ".new", p)',
              'for p in {!r}:'.format(stale),
              '    try:',
@@ -275,7 +304,8 @@ def flash(args, files, paths, port):
              '    except OSError:',
              '        pass',
              'with open({!r}, "w") as f:'.format(MANIFEST),
-             '    f.write({!r})'.format('\n'.join(paths) + '\n')]))
+             '    f.write({!r})'.format('\n'.join(paths) + '\n')])
+        retrying(repl, 'Installing the files', lambda: repl.exec(install))
         if stale:
             print('Removed from the board: ' + ', '.join(stale))
 

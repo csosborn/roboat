@@ -53,6 +53,9 @@ The RP2040 must be able to restart, crash, or be reprogrammed without taking the
 - NoMainPower: superstate encompassing all operations where the main battery is exhausted or too low a voltage. Entering it cuts power to the Pi and the drive.
   - Monitor: stable state wherein the RP2040 is monitoring and recording power levels but the ship is otherwise idle, waiting for sufficient power to be available for normal operations.
 - MainPower: the main battery is above the main-power threshold (12.6V up, 12.4V down).
+  - Low battery: once the battery has stayed below 12.8 V for 2 minutes (roughly 15-20% charge for LiFePO4 at these loads), the RP2040 shuts the Pi down cleanly. It asks the monitor to power off over the UART, waits until the Pi has been silent for 30 s (or 2 minutes at most), cuts its power, and goes to AwaitPower. The rest of the battery keeps the RP2040 and GPS running and logging.
+  - The Victron's load output (which feeds the DC-DC converter for both the RP2040 and the Pi) uses VictronConnect's user-defined mode: off below 12.0 V, on above 13.2 V. So the order as the battery drains is: Pi shut down cleanly at 12.8 V; load output off at 12.0 V (the RP2040 continues on its LiPo); battery's own protection last. The load output comes back once solar charging lifts the battery above 13.2 V.
+  - Restart: the Pi is started again only when energy is OK (battery above 13.5 V, or more than 10 W of solar) and the battery is at least 13.0 V, and not within 15 minutes of a deliberate shutdown.
   - AwaitPower: not enough energy to start the Pi. If the Pi is already running (for example after an RP2040 reset), it is left running and the state moves to NoPiComms.
   - PiOff, NoPiComms, PiAlive, PiStopping: the Pi's lifecycle.
 
@@ -67,14 +70,15 @@ stateDiagram
     }
     state MainPower {
         [*] --> AwaitPower
-        AwaitPower --> PiOff : energy_ok
+        AwaitPower --> PiOff : energy_ok (not within 15 min of a shutdown)
         AwaitPower --> NoPiComms : pi_already_on
         PiOff --> AwaitPower : energy_low
         PiOff --> NoPiComms : start_pi
         NoPiComms --> PiAlive : pi_hb
         PiAlive --> NoPiComms : pi_hb_to
-        PiAlive --> PiStopping : stop_pi
-        PiStopping --> PiOff : pi_stopped (30s)
+        PiAlive --> PiStopping : battery_low / stop_pi
+        NoPiComms --> PiStopping : battery_low / stop_pi
+        PiStopping --> AwaitPower : pi_stopped (Pi silent 30 s, or 2 min)
     }
     Init --> MainPower : main_power_up
     Init --> NoMainPower : main_power_down

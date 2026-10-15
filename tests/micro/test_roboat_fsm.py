@@ -11,10 +11,17 @@ class Harness:
         self.scheduled = []
         self.power_on_calls = 0
         self.recorded = []
+        self.events = []
+        self.shutdown_requests = 0
         self.sm = fsm.RoboatSM(FakeNeoPixel(), self.pi, self.drive, FakePWM(),
                                schedule=lambda ms, fn: self.scheduled.append((ms, fn)),
                                on_pi_power_on=self._powered_on,
-                               record_pi_power=self.recorded.append)
+                               record_pi_power=self.recorded.append,
+                               request_pi_shutdown=self._request_shutdown,
+                               notify=lambda event, **f: self.events.append(event))
+
+    def _request_shutdown(self):
+        self.shutdown_requests += 1
 
     def _powered_on(self):
         self.power_on_calls += 1
@@ -77,17 +84,69 @@ def test_losing_main_power_cuts_pi_and_recovery_waits_for_energy():
     assert h.pi.value() == 0
 
 
-def test_requested_shutdown_cuts_power_after_wait():
+def running_pi():
     h = Harness(pi_on=True)
     h.sm.dispatch(fsm.MAIN_POWER_UP)
     h.sm.dispatch(fsm.PI_HEARTBEAT)
-    h.sm.dispatch(fsm.STOP_PI)
+    assert h.sm.state == 'PiAlive'
+    return h
+
+
+def test_low_battery_shuts_the_pi_down_cleanly():
+    h = running_pi()
+    h.sm.dispatch(fsm.BATTERY_LOW)
+    assert h.sm.state == 'PiStopping' and h.shutdown_requests == 1
+    assert h.pi.value() == 1  # nothing is cut until the Pi has halted
+    h.sm.dispatch(fsm.PI_STOPPED)
+    assert h.sm.state == 'AwaitPower' and h.pi.value() == 0
+    assert h.events == ["pi_shutdown_requested", "pi_power_cut"]
+
+
+def test_low_battery_also_stops_a_pi_that_is_not_talking():
+    h = Harness(pi_on=True)
+    h.sm.dispatch(fsm.MAIN_POWER_UP)
+    assert h.sm.state == 'NoPiComms'
+    h.sm.dispatch(fsm.BATTERY_LOW)
     assert h.sm.state == 'PiStopping'
-    assert h.pi.value() == 1
+
+
+def test_low_battery_ignored_while_the_pi_is_off():
+    h = Harness(pi_on=False)
+    h.sm.dispatch(fsm.MAIN_POWER_UP)
+    h.sm.dispatch(fsm.BATTERY_LOW)
+    assert h.sm.state == 'AwaitPower' and h.shutdown_requests == 0
+
+
+def test_no_restart_until_the_holdoff_expires():
+    h = running_pi()
+    h.sm.dispatch(fsm.BATTERY_LOW)
+    h.sm.dispatch(fsm.PI_STOPPED)
+    h.sm.dispatch(fsm.ENERGY_OK)
+    assert h.sm.state == 'AwaitPower'
+    assert [ms for ms, _ in h.scheduled] == [fsm.PI_RESTART_HOLDOFF_MS]
+    h.run_scheduled()
+    h.sm.dispatch(fsm.ENERGY_OK)
+    h.sm.dispatch(fsm.START_PI)
+    assert h.sm.state == 'NoPiComms' and h.pi.value() == 1
+    assert h.events[-1] == "pi_power_on"
+
+
+def test_main_power_loss_during_shutdown_cuts_at_once():
+    h = running_pi()
+    h.sm.dispatch(fsm.BATTERY_LOW)
+    h.sm.dispatch(fsm.MAIN_POWER_DOWN)
+    assert h.sm.state == 'Monitor' and h.pi.value() == 0
+    assert h.events[-1] == "pi_power_cut"
+
+
+def test_without_a_shutdown_hook_power_is_cut_after_a_wait():
+    h = Harness(pi_on=True)
+    h.sm.request_pi_shutdown_ = None
+    h.sm.dispatch(fsm.MAIN_POWER_UP)
+    h.sm.dispatch(fsm.STOP_PI)
     assert [ms for ms, _ in h.scheduled] == [fsm.PI_SHUTDOWN_WAIT_MS]
     h.run_scheduled()
-    assert h.sm.state == 'PiOff'
-    assert h.pi.value() == 0
+    assert h.sm.state == 'AwaitPower' and h.pi.value() == 0
 
 
 def test_deliberate_power_changes_are_recorded_and_startup_records_nothing():
@@ -98,7 +157,7 @@ def test_deliberate_power_changes_are_recorded_and_startup_records_nothing():
     h.sm.dispatch(fsm.START_PI)
     h.sm.dispatch(fsm.PI_HEARTBEAT)
     h.sm.dispatch(fsm.STOP_PI)
-    h.run_scheduled()
+    h.sm.dispatch(fsm.PI_STOPPED)
     h.sm.dispatch(fsm.MAIN_POWER_DOWN)
     assert h.recorded == [True, False, False]
 

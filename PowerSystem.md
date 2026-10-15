@@ -3,13 +3,15 @@
 ## Component Selection
 
 ### Battery
-- [Epoch 12v 50Ah LiFePo4 battery](https://www.epochbatteries.com/products/12v-50ah-bluetooth-lifepo4-deep-cycle-battery-epoch-essentials
+- In use: a 12 V 20 Ah LiFePO4 pack (about 256 Wh). The firmware's battery model and low-battery thresholds assume it.
+- Tested earlier but too large for the hull: [Epoch 12v 50Ah LiFePo4 battery](https://www.epochbatteries.com/products/12v-50ah-bluetooth-lifepo4-deep-cycle-battery-epoch-essentials
 )
 - 14.3 lbs
 - 7.75" long, 6.5" wide, 7" tall
 - 600Wh
 
 ### Charge Controller
+- In use: a Victron MPPT (VE.Direct text protocol to the RP2040). Its load output is in user-defined mode: off below 12.0 V, on above 13.2 V (set 2026-10-11, replacing BatteryLife, which suits lead-acid). See the power safety rules in `Compute.md` for how this fits with the Pi's 12.8 V shutdown.
 - Option 1: [Genasun GVB-8-Li-14.2V MPPT controller](https://cdn.shopify.com/s/files/1/0062/2959/0114/files/GVB-8_Manual.pdf?v=1680700571)
   - Min panel voltage: 5V
   - Max panel current: 8A

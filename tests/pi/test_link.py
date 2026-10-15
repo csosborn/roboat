@@ -1,7 +1,7 @@
 import json
 import struct
 
-from link import LineReader, handle, heartbeat
+from link import LineReader, handle, heartbeat, make_request_handler
 from timesync import ChronyRefclock, SOCK_MAGIC, encode_sample
 from writer import QueuedWriter
 
@@ -80,4 +80,17 @@ def test_garbage_lines_are_skipped():
     w = QueuedWriter(lambda point: None)
     handle('not json', 0.0, w, FakeClock())
     handle('[1, 2]', 0.0, w, FakeClock())
+    assert not w.queue_
+
+
+def test_live_shutdown_request_powers_off_once_and_replays_are_ignored():
+    calls = []
+    w = QueuedWriter(lambda point: None)
+    on_request = make_request_handler(w, run=lambda cmd, check: calls.append(cmd))
+    handle('{"seq": 3, "src": "request", "action": "shutdown"}', 0.0, w, FakeClock(), on_request)
+    assert calls == []
+    for _ in range(3):
+        handle('{"src": "request", "action": "shutdown", "reason": "low_battery"}',
+               0.0, w, FakeClock(), on_request)
+    assert calls == [["systemctl", "poweroff", "--no-block"]]
     assert not w.queue_

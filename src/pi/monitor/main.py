@@ -6,7 +6,7 @@ import time
 import influxdb_client
 from influxdb_client.client.write_api import SYNCHRONOUS
 
-from link import LineReader, handle, heartbeat
+from link import LineReader, handle, heartbeat, make_request_handler
 from timesync import ChronyRefclock
 from writer import QueuedWriter
 
@@ -37,6 +37,7 @@ if __name__ == "__main__":
     writer = QueuedWriter(lambda point: write_api.write(bucket, org, point))
     reader = LineReader()
     refclock = ChronyRefclock(CHRONY_SOCK)
+    on_request = make_request_handler(writer)
     next_heartbeat = 0.0
 
     # main loop
@@ -48,7 +49,7 @@ if __name__ == "__main__":
             data += ser.read(ser.in_waiting)
         arrived = time.time()
         for line in reader.feed(data):
-            handle(line, arrived, writer, refclock)
+            handle(line, arrived, writer, refclock, on_request)
         writer.flush()
 
         if time.monotonic() >= next_heartbeat:
