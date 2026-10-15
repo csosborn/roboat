@@ -11,8 +11,17 @@ MPPT_STALE_MS = 30000
 
 # Main power hysteresis keeps a battery hovering near the threshold from
 # power-cycling the Pi over and over.
+#
+# Main power also needs the MPPT's load output to be live, since that output
+# feeds the DC-DC converter for the Pi (and the RP2040, which otherwise runs on
+# its LiPo). The output reconnects at a higher battery voltage than the Pi may
+# start at, and its own data line keeps reporting battery voltage while it's
+# off. The INA260 measures the load side directly: it reads under a volt with
+# the output off.
 MAIN_POWER_UP_V = 12.6
 MAIN_POWER_DOWN_V = 12.4
+LOAD_BUS_DEAD_V = 9.0
+INA_FRESH_MS = 5000
 ENERGY_OK_V = 13.5
 ENERGY_OK_PANEL_W = 10
 
@@ -46,6 +55,8 @@ class PowerMonitor:
         self.dispatch_ = dispatch
 
         self.last_ina_ms_ = now_ms
+        self.load_bus_v_ = None
+        self.load_bus_ms_ = None
         self.last_mppt_ms_ = None
         self.mppt_epoch_ = mppt.epoch
         self.mppt_frames_ = 0
@@ -86,6 +97,8 @@ class PowerMonitor:
                 self.ina_consecutive_errors_ = 0
             return
         self.ina_consecutive_errors_ = 0
+        self.load_bus_v_ = voltage
+        self.load_bus_ms_ = now_ms
 
         self.logic_charge_as_ += current * dt_ms / 1000.0
         self.pi_link_.send_update("ina260", {
@@ -120,7 +133,7 @@ class PowerMonitor:
             return True
         self.last_mppt_ms_ = now_ms
 
-        self.pi_link_.send_update("mppt", {
+        update = {
             "mppt_mode": mppt.tracker_mode,
             "mppt_epoch": mppt.epoch,
             "batt_v": mppt.battery_volts,
@@ -128,9 +141,11 @@ class PowerMonitor:
             "sol_v": mppt.panel_volts,
             "sol_p": mppt.panel_watts,
             "load_i": mppt.load_amps,
-            "load_on": 1 if mppt.load_on else 0,
             "mppt_total_kwh": mppt.yield_total_kwh
-        })
+        }
+        if mppt.load_on is not None:
+            update["load_on"] = 1 if mppt.load_on else 0
+        self.pi_link_.send_update("mppt", update)
         self._update_battery_model(now_ms)
 
         self._assess_battery(mppt.battery_volts, now_ms)
@@ -164,7 +179,7 @@ class PowerMonitor:
             return
         self.battery_v = volts
         self.last_assess_ms_ = now_ms
-        self._assess_main_power(volts)
+        self._assess_main_power(volts, now_ms)
         if volts < PI_SHUTDOWN_V:
             if self.low_since_ms_ is None:
                 self.low_since_ms_ = now_ms
@@ -173,8 +188,20 @@ class PowerMonitor:
         elif volts >= PI_SHUTDOWN_CLEAR_V:
             self.low_since_ms_ = None
 
-    def _assess_main_power(self, volts):
-        if self.main_power_ is not True and volts > MAIN_POWER_UP_V:
+    def load_output_live(self, now_ms):
+        """False once the MPPT says its load output is off, or the INA260 reads it dead."""
+        if not self._mppt_stale(now_ms) and self.mppt_.load_on is False:
+            return False
+        if (self.load_bus_ms_ is not None
+                and time.ticks_diff(now_ms, self.load_bus_ms_) <= INA_FRESH_MS
+                and self.load_bus_v_ < LOAD_BUS_DEAD_V):
+            return False
+        return True
+
+    def _assess_main_power(self, volts, now_ms):
+        if not self.load_output_live(now_ms):
+            self.main_power_ = False
+        elif self.main_power_ is not True and volts > MAIN_POWER_UP_V:
             self.main_power_ = True
         elif self.main_power_ is not False and volts < MAIN_POWER_DOWN_V:
             self.main_power_ = False

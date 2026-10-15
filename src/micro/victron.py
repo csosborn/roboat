@@ -15,7 +15,7 @@ class VictronMPPT:
         self.tracker_mode = 0
         self.yield_total_kwh = 0
         self.error = 0
-        self.load_on = False
+        self.load_on = None  # unknown until a frame reports LOAD
 
 
     def update(self):
