@@ -8,6 +8,7 @@ import telemetry_log as tl
 @pytest.fixture(autouse=True)
 def device_fs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(tl, '_fs_free', lambda: None)
     return tmp_path
 
 
@@ -135,6 +136,60 @@ def test_full_log_drops_oldest_segments(monkeypatch):
     assert log.dropped > 0
     sent, _ = drain(log, 0)
     assert sent == list(range(40 - len(sent), 40))
+
+
+def replay_lines(log, steps=500):
+    lines = []
+    for n in range(steps):
+        log.step(n * tl.REPLAY_INTERVAL_MS, True, lines.append)
+    return lines
+
+
+def event(i, name):
+    return {"src": "status", "utc_ms": 1791763000000 + i, "event": name}
+
+
+def test_full_log_keeps_its_events(monkeypatch):
+    monkeypatch.setattr(tl, 'SEGMENT_BYTES', 200)
+    monkeypatch.setattr(tl, 'MAX_BYTES', 600)
+    monkeypatch.setattr(tl, 'FLUSH_BYTES', 1)
+    log = tl.TelemetryLog(now_ms=0)
+    log.record(event(0, "pi_shutdown_requested"), now_ms=0)
+    log.record(event(1, "pi_power_cut"), now_ms=0)
+    for i in range(2, 60):
+        log.record(msg(i), now_ms=0)
+    assert log.dropped > 0
+    lines = replay_lines(log)
+    replayed = [json.loads(line) for line in lines]
+    events = [r for r in replayed if "event" in r]
+    assert [(r["event"], r["utc_ms"]) for r in events] == [
+        ("pi_shutdown_requested", 1791763000000), ("pi_power_cut", 1791763000001)]
+    assert log.dropped == 60 - len(replayed)
+    assert log.stored_bytes <= 600 + 200
+
+
+def test_events_survive_being_carried_over_more_than_once(monkeypatch):
+    monkeypatch.setattr(tl, 'SEGMENT_BYTES', 200)
+    monkeypatch.setattr(tl, 'MAX_BYTES', 600)
+    monkeypatch.setattr(tl, 'FLUSH_BYTES', 1)
+    log = tl.TelemetryLog(now_ms=0)
+    log.record(event(0, "pi_power_cut"), now_ms=0)
+    for i in range(1, 300):
+        log.record(msg(i), now_ms=0)
+    lines = replay_lines(log)
+    assert sum('"pi_power_cut"' in line for line in lines) == 1
+
+
+def test_low_free_space_drops_oldest_segments(monkeypatch):
+    monkeypatch.setattr(tl, 'SEGMENT_BYTES', 200)
+    monkeypatch.setattr(tl, 'FLUSH_BYTES', 1)
+    log = tl.TelemetryLog(now_ms=0)
+    for i in range(10):
+        log.record(msg(i), now_ms=0)
+    assert log.dropped == 0
+    monkeypatch.setattr(tl, '_fs_free', lambda: tl.FS_RESERVE_BYTES - 1)
+    log.record(msg(10), now_ms=0)
+    assert len(log.segments_) == 1 and log.dropped > 0
 
 
 def test_unflushed_records_are_flushed_on_schedule(device_fs):

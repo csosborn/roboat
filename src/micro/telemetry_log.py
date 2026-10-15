@@ -7,6 +7,10 @@ deleted only once every record in it has been acknowledged. Sequence numbers
 persist across resets (tlm/next), so an acknowledgement can never match a
 newer record. Replaying a record twice is harmless: InfluxDB keeps one point
 per series and timestamp.
+
+When the log is full, the oldest segment goes, except for its event records
+(status records with an "event" field), which are recorded again at the end.
+They keep their original utc_ms, so InfluxDB still files them in time order.
 """
 import json
 import os
@@ -15,7 +19,9 @@ import time
 LOG_DIR = 'tlm'
 NEXT_FILE = LOG_DIR + '/next'
 SEGMENT_BYTES = 16384
-MAX_BYTES = 2 * 1024 * 1024
+MAX_BYTES = 4 * 1024 * 1024
+# Free flash always left for a deploy to stage new firmware.
+FS_RESERVE_BYTES = 1024 * 1024
 FLUSH_MS = 30000
 FLUSH_BYTES = 4096
 REPLAY_INTERVAL_MS = 30
@@ -27,6 +33,18 @@ RESEND_AFTER_MS = 60000
 def _seq_of(line):
     # Every record starts '{"seq": N, ...'.
     return int(line[8:line.index(',')])
+
+
+def _is_event(line):
+    return '"event": ' in line
+
+
+def _fs_free():
+    try:
+        st = os.statvfs(LOG_DIR)
+        return st[0] * st[4]
+    except OSError:
+        return None
 
 
 class TelemetryLog:
@@ -55,10 +73,7 @@ class TelemetryLog:
     # --- recording ---------------------------------------------------------
 
     def record(self, message, now_ms):
-        line = '{{"seq": {}, {}\n'.format(self.next_seq_, json.dumps(message)[1:])
-        self.next_seq_ += 1
-        self.pending_.append(line)
-        self.pending_bytes_ += len(line)
+        self._append(message)
         self.recorded += 1
         if self.pending_bytes_ >= FLUSH_BYTES:
             self.flush(now_ms)
@@ -67,6 +82,16 @@ class TelemetryLog:
         self.last_flush_ms_ = now_ms
         if not self.pending_:
             return
+        self._write_pending()
+        self._enforce_limit()
+
+    def _append(self, message):
+        line = '{{"seq": {}, {}\n'.format(self.next_seq_, json.dumps(message)[1:])
+        self.next_seq_ += 1
+        self.pending_.append(line)
+        self.pending_bytes_ += len(line)
+
+    def _write_pending(self):
         if not self.segments_ or self.segments_[-1][1] >= SEGMENT_BYTES:
             self.segments_.append([_seq_of(self.pending_[0]), 0])
         seg = self.segments_[-1]
@@ -78,7 +103,6 @@ class TelemetryLog:
         self.pending_bytes_ = 0
         with open(NEXT_FILE, 'w') as f:
             f.write(str(self.next_seq_))
-        self._enforce_limit()
 
     # --- replay -------------------------------------------------------------
 
@@ -177,10 +201,39 @@ class TelemetryLog:
             self.cursor_ = (later[0], 0) if later else None
 
     def _enforce_limit(self):
-        while len(self.segments_) > 1 and self.stored_bytes > MAX_BYTES:
+        kept = 0
+        while len(self.segments_) > 1 and self._over_limit():
             oldest = self.segments_.pop(0)
-            self.dropped += self.segments_[0][0] - oldest[0]
+            events = self._events_in(oldest)
+            self.dropped += self.segments_[0][0] - oldest[0] - len(events)
             self._delete(oldest)
+            for message in events:
+                self._append(message)
+            kept += len(events)
+        if kept:
+            self._write_pending()
+
+    def _over_limit(self):
+        if self.stored_bytes > MAX_BYTES:
+            return True
+        free = _fs_free()
+        return free is not None and free < FS_RESERVE_BYTES
+
+    def _events_in(self, seg):
+        events = []
+        try:
+            with open(self._path(seg[0])) as f:
+                for line in f:
+                    if _is_event(line):
+                        try:
+                            message = json.loads(line)
+                        except ValueError:
+                            continue
+                        message.pop("seq", None)
+                        events.append(message)
+        except OSError:
+            pass
+        return events
 
     def _delete(self, seg):
         try:
