@@ -49,7 +49,7 @@ keep_alive = []
 boot_ms = time.ticks_ms()
 boot_number, safe_mode = supervisor.record_boot()
 
-# boot.py has already chosen the relay level; keep it, but make sure the pin
+# boot.py has already chosen the Pi's power; keep it, but make sure the pin
 # is an output even if boot.py didn't run.
 pi_power = Pin(PI_POWER_PIN)
 pi_power = Pin(PI_POWER_PIN, Pin.OUT, value=pi_power.value())
@@ -91,8 +91,8 @@ def run_safe_mode():
     np[0] = (2, 0, 2)
     np.write()
     pi_link.send_update("status", status_fields(mode="safe"))
-    print("SAFE MODE after {} boots without a healthy run. The watchdog is off and the Pi "
-          "relay is left as boot.py set it. Normal operation is retried in {} minutes."
+    print("SAFE MODE after {} boots without a healthy run. The watchdog is off and the Pi's "
+          "power is left as boot.py set it. Normal operation is retried in {} minutes."
           .format(boot_number, SAFE_MODE_RETRY_MS // 60000))
     attach_repl_to_pi_link()
 

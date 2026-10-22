@@ -14,8 +14,6 @@ serial link that also carries telemetry.
    files a previous deploy shipped that are no longer part of the firmware,
    record the manifest, and reset the board.
 4. Wait for the new firmware's boot status message in the monitor's journal.
-   With --reset-delay, the reset is instead left to run on the board after a
-   delay, so the Pi can shut down first (see pi_apply.sh --flash-halt).
 
 If anything fails before step 3, the files on the board are unchanged.
 """
@@ -230,9 +228,6 @@ def main():
                              'roboat-monitor while flashing')
     parser.add_argument('--wait', type=int, default=0, metavar='SECONDS',
                         help='wait this long for the board to appear, then interrupt it at once')
-    parser.add_argument('--reset-delay', type=int, metavar='SECONDS',
-                        help='reset the board this long after flashing instead of now, '
-                             'and skip the boot check')
     args = parser.parse_args()
 
     files = firmware_files(args.version)
@@ -249,9 +244,6 @@ def main():
             time.sleep(0.3)  # let the port settle after enumeration
         since = flash(args, files, paths, port)
 
-    if args.reset_delay:
-        print('The board resets itself in {} s.'.format(args.reset_delay))
-        return 0
     print('Board reset; waiting for the boot status message...')
     line = wait_for_boot(args.version, since)
     if line is None:
@@ -267,8 +259,8 @@ def monitor(action):
 
 
 def flash(args, files, paths, port):
-    """Stage, verify, and install the files, then reset the board (now, or
-    after --reset-delay). Returns the time just before the reset."""
+    """Stage, verify, and install the files, then reset the board. Returns the
+    time just before the reset."""
     repl = RawRepl(port)
     try:
         if args.serial:
@@ -310,11 +302,7 @@ def flash(args, files, paths, port):
             print('Removed from the board: ' + ', '.join(stale))
 
         since = time.strftime('%Y-%m-%d %H:%M:%S')
-        if args.reset_delay:
-            repl.start('import time, machine\ntime.sleep({})\nmachine.reset()'
-                       .format(args.reset_delay))
-        else:
-            repl.start('import machine\nmachine.reset()')
+        repl.start('import machine\nmachine.reset()')
         return since
     finally:
         repl.close()

@@ -1,4 +1,4 @@
-"""What the Pi's power relay should do as the RP2040 comes out of reset.
+"""What the Pi's power (GPIO11, high = on) should do as the RP2040 comes out of reset.
 
 - Cold start (power-on reset, which includes the reset button): the whole
   system may just be waking on a nearly empty battery, so the Pi stays off
@@ -12,7 +12,7 @@ PI_POWER_FILE = 'pi_power'
 
 
 def pi_power_at_boot(cold_start, pin_driven, last_choice):
-    """Returns 0 or 1 to drive the relay pin, or None to leave it untouched."""
+    """Returns 0 or 1 to drive the pin, or None to leave it untouched."""
     if pin_driven:
         return None
     if cold_start:
@@ -30,7 +30,7 @@ def read_last_choice():
 
 
 class ChoiceRecorder:
-    """Persists deliberate relay changes, writing flash only when they change."""
+    """Persists deliberate Pi power changes, writing flash only when they change."""
 
     def __init__(self):
         self.last_ = read_last_choice()
