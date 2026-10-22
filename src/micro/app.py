@@ -179,11 +179,15 @@ def run():
         pi_link.send_update("status", current_status(**extra))
 
     def report(**extra):
-        """A status record that must not be lost: stored if the Pi isn't listening."""
-        if presence.listening:
-            send_status(**extra)
-        elif tlog is not None:
-            store(pi_link.message("status", current_status(**extra)), time.ticks_ms())
+        """A status record that must not be lost (an event): sent, and stored too.
+
+        The Pi may already be gone without the heartbeat timeout having noticed
+        yet (a power cut takes it down at once), so whether it's listening
+        can't be trusted here. Replaying a record the Pi already has is harmless.
+        """
+        msg = pi_link.send_update("status", current_status(**extra))
+        if tlog is not None:
+            store(msg, time.ticks_ms())
 
     def store(msg, now):
         if "utc_ms" in msg:
@@ -223,7 +227,7 @@ def run():
     # loop stops for maintenance.
     keep_alive.append(Timer(period=1000, mode=Timer.PERIODIC, callback=feed_wdt))
 
-    send_status(event="boot", wdt=wdt is not None, serial_repl=SERIAL_REPL)
+    report(event="boot", wdt=wdt is not None, serial_repl=SERIAL_REPL)
     last_status_ms = time.ticks_ms()
     last_snapshot_ms = time.ticks_ms()
     healthy = False
@@ -243,7 +247,7 @@ def run():
                     if tlog is not None and isinstance(ack, int):
                         tlog.ack(ack)
                     if came_back:
-                        send_status(event="pi_up")
+                        report(event="pi_up")
             if presence.check(now):
                 roboat.dispatch(PI_HEARTBEAT_TO)
                 store_snapshot(now, event="pi_down")
@@ -272,21 +276,21 @@ def run():
         # while; if nobody resets the board by then, it resets itself and
         # resumes normal operation.
         liveness.start_maintenance(time.ticks_ms())
-        flush_log()
         via_pi_link = isinstance(e, MaintenanceRequested)
-        send_status(event="maintenance", via="pi_link" if via_pi_link else "console")
+        report(event="maintenance", via="pi_link" if via_pi_link else "console")
+        flush_log()
         if via_pi_link:
             attach_repl_to_pi_link()
         print("Main loop stopped. The watchdog resets the board in {} s unless "
               "reset sooner.".format(supervisor.MAINTENANCE_S) if wdt else "Main loop stopped.")
     except Exception as e:
         supervisor.record_crash(e, time.ticks_diff(time.ticks_ms(), boot_ms))
-        flush_log()
         try:
-            send_status(event="crash", error=repr(e))
-            time.sleep_ms(100)
+            report(event="crash", error=repr(e))
         except Exception:
             pass
+        flush_log()
+        time.sleep_ms(100)
         machine.reset()
 
 
