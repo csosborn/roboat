@@ -25,7 +25,7 @@ class RoboatSM():
 
     The Pi's power is only ever changed deliberately, and each change is passed
     to record_pi_power(on) so boot.py can restore it after a watchdog reset.
-    The FSM never touches the relay at startup; boot.py has already set it.
+    The FSM never touches the Pi's power at startup; boot.py has already set it.
 
     schedule(delay_ms, fn) must call fn later from the main loop, never from an
     interrupt, so that dispatches can't nest.
