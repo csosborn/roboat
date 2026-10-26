@@ -13,9 +13,11 @@
         - USB connection: a fallback for programming only; deploys normally go over the UART (see `tools/README.md`). Its 5V (VBUS) line must be cut: the RP2040 runs from its own supply, and a live VBUS back-powers the Pi through its USB port, so its power switch can no longer turn the Pi off.
 
 - RP2040 Feather microcontroller running MicroPython
-    - UART-connected Victron MPPT
+    - UART-connected Victron MPPT (UART1: RX on GPIO9; the unused TX is parked on GPIO24 so it can't clash with the ESC on GPIO8)
     - I2C-connected INA260 current/voltage monitor reading main battery voltage and aggregate load of compute and sensors
-    - I2C-connected 9-DOF IMU (I2C0, GPIO 12/13)
+    - I2C-connected 9-DOF IMU: an Adafruit BNO085 (on-chip sensor fusion) at 0x4A, daisy-chained on the STEMMA QT bus (I2C1) after the GPS. The firmware only checks that it answers (`imu_present` in status). The BNO085 holds the I2C clock low at times, and some hosts struggle with that; if INA260 or GPS errors rise, move it to its own bus or its UART mode. (Replaced an LSM9DS1 on I2C0 in October 2026; that board ran hot, drawing about 0.3 W, and was probably damaged.)
+    - LiPo voltage: the Feather's BAT pin through a 100k/100k divider (0.1 uF at the pin) to A0/GPIO26, reported as `lipo_v` in status. Only approximate below about 3.4 V, where the 3.3 V reference sags.
+    - The Pi supply's power-good (PG): GPIO10, through a 10k/15k divider fed by that supply's own 5 V output, so it reads high only while the Pi's supply is on and in range. Reported as `pi_supply_good`. If it stays low for 3 s while the Pi should be powered, the firmware reports a `pi_supply_fault` event (and `pi_supply_good` on recovery).
     - I2C-connected GPS: Adafruit Mini GPS PA1010D on the STEMMA QT connector (I2C1, GPIO 2/3, shared with the INA260). The RP2040 keeps position and UTC while the Pi is off, and timestamps its messages (`utc_ms`) once it has a fix.
     - propulsion motor ESC
     - rudder servo

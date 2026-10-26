@@ -1,5 +1,5 @@
 import machine
-from machine import Pin, UART, I2C, PWM, WDT, Timer
+from machine import Pin, UART, I2C, PWM, WDT, Timer, ADC
 from neopixel import NeoPixel
 
 import os
@@ -20,6 +20,7 @@ from shared_bus import SharedBus
 from scheduler import Scheduler
 from telemetry_log import TelemetryLog
 from pi_shutdown import PiShutdown
+from power_sense import LipoSense, PiSupplyCheck, LIPO_PIN, PI_SUPPLY_GOOD_PIN
 
 try:
     from version import VERSION
@@ -30,6 +31,12 @@ PI_POWER_PIN = 11
 DRIVE_POWER_PIN = 7
 ESC_PIN = 8
 NEOPIXEL_PIN = 16
+# The Victron only transmits, so UART1's TX goes to an otherwise unused pin
+# (GPIO8 is the ESC's).
+MPPT_TX_PIN = 24
+MPPT_RX_PIN = 9
+# An Adafruit BNO085 on the STEMMA QT chain (I2C1). Not read yet.
+IMU_ADDR = 0x4A
 
 STATUS_INTERVAL_MS = 60000
 # While the Pi isn't listening, store a snapshot of the latest readings this often.
@@ -108,11 +115,22 @@ def run():
     esc = PWM(Pin(ESC_PIN), freq=50)
     esc.duty_ns(10)
 
-    imu_i2c = I2C(0, scl=Pin(13), sda=Pin(12), freq=400_000)
-    mppt_uart = UART(1, baudrate=19200, tx=Pin(8), rx=Pin(9))
+    mppt_uart = UART(1, baudrate=19200, tx=Pin(MPPT_TX_PIN), rx=Pin(MPPT_RX_PIN))
 
-    # The INA260 and the GPS (on the STEMMA QT connector) share I2C1.
+    # The INA260, the GPS and the IMU (on the STEMMA QT chain) share I2C1.
     i2c1 = SharedBus(lambda: I2C(1, scl=Pin(3), sda=Pin(2), freq=400_000))
+    try:
+        imu_present = 1 if IMU_ADDR in i2c1.get().scan() else 0
+    except OSError:
+        imu_present = None
+    lipo = LipoSense(ADC(LIPO_PIN))
+    pi_supply = PiSupplyCheck(Pin(PI_SUPPLY_GOOD_PIN, Pin.IN), pi_power, time.ticks_ms())
+
+    def lipo_v():
+        try:
+            return lipo.volts()
+        except OSError:
+            return None
     ina_made = []
 
     def make_ina():
@@ -167,7 +185,8 @@ def run():
             pi_up=1 if presence.listening else 0, fs_free_kb=fs_free_kb(),
             log_unstorable=unstorable[0], battery_v=monitor.battery_v,
             battery_low_s=monitor.battery_low_s,
-            restart_blocked=1 if roboat.restart_blocked_ else 0, **extra)
+            restart_blocked=1 if roboat.restart_blocked_ else 0, lipo_v=lipo_v(),
+            pi_supply_good=1 if pi_supply.good else 0, imu_present=imu_present, **extra)
         if tlog is not None:
             fields.update(log_backlog=tlog.backlog, log_bytes=tlog.stored_bytes,
                           log_dropped=tlog.dropped, log_replayed=tlog.replayed)
@@ -260,6 +279,7 @@ def run():
                 if shutdown.timed_out:
                     report(event="pi_shutdown_timeout")
                 roboat.dispatch(PI_STOPPED)
+            pi_supply.step(now, report_event)
             if tlog is not None:
                 tlog.step(now, presence.listening, pi_link.send_line)
             gps.step(now)
