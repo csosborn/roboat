@@ -1,5 +1,5 @@
 import machine
-from machine import Pin, UART, I2C, PWM, WDT, Timer
+from machine import Pin, UART, I2C, PWM, WDT, Timer, ADC
 from neopixel import NeoPixel
 
 import os
@@ -20,6 +20,7 @@ from shared_bus import SharedBus
 from scheduler import Scheduler
 from telemetry_log import TelemetryLog
 from pi_shutdown import PiShutdown
+from power_sense import LipoSense, PiSupplyCheck, LIPO_PIN, PI_SUPPLY_GOOD_PIN
 
 try:
     from version import VERSION
@@ -30,6 +31,12 @@ PI_POWER_PIN = 11
 DRIVE_POWER_PIN = 7
 ESC_PIN = 8
 NEOPIXEL_PIN = 16
+# The Victron only transmits, so UART1's TX goes to an otherwise unused pin
+# (GPIO8 is the ESC's).
+MPPT_TX_PIN = 24
+MPPT_RX_PIN = 9
+# An Adafruit BNO085 on the STEMMA QT chain (I2C1). Not read yet.
+IMU_ADDR = 0x4A
 
 STATUS_INTERVAL_MS = 60000
 # While the Pi isn't listening, store a snapshot of the latest readings this often.
@@ -49,7 +56,7 @@ keep_alive = []
 boot_ms = time.ticks_ms()
 boot_number, safe_mode = supervisor.record_boot()
 
-# boot.py has already chosen the relay level; keep it, but make sure the pin
+# boot.py has already chosen the Pi's power; keep it, but make sure the pin
 # is an output even if boot.py didn't run.
 pi_power = Pin(PI_POWER_PIN)
 pi_power = Pin(PI_POWER_PIN, Pin.OUT, value=pi_power.value())
@@ -91,8 +98,8 @@ def run_safe_mode():
     np[0] = (2, 0, 2)
     np.write()
     pi_link.send_update("status", status_fields(mode="safe"))
-    print("SAFE MODE after {} boots without a healthy run. The watchdog is off and the Pi "
-          "relay is left as boot.py set it. Normal operation is retried in {} minutes."
+    print("SAFE MODE after {} boots without a healthy run. The watchdog is off and the Pi's "
+          "power is left as boot.py set it. Normal operation is retried in {} minutes."
           .format(boot_number, SAFE_MODE_RETRY_MS // 60000))
     attach_repl_to_pi_link()
 
@@ -108,11 +115,22 @@ def run():
     esc = PWM(Pin(ESC_PIN), freq=50)
     esc.duty_ns(10)
 
-    imu_i2c = I2C(0, scl=Pin(13), sda=Pin(12), freq=400_000)
-    mppt_uart = UART(1, baudrate=19200, tx=Pin(8), rx=Pin(9))
+    mppt_uart = UART(1, baudrate=19200, tx=Pin(MPPT_TX_PIN), rx=Pin(MPPT_RX_PIN))
 
-    # The INA260 and the GPS (on the STEMMA QT connector) share I2C1.
+    # The INA260, the GPS and the IMU (on the STEMMA QT chain) share I2C1.
     i2c1 = SharedBus(lambda: I2C(1, scl=Pin(3), sda=Pin(2), freq=400_000))
+    try:
+        imu_present = 1 if IMU_ADDR in i2c1.get().scan() else 0
+    except OSError:
+        imu_present = None
+    lipo = LipoSense(ADC(LIPO_PIN))
+    pi_supply = PiSupplyCheck(Pin(PI_SUPPLY_GOOD_PIN, Pin.IN), pi_power, time.ticks_ms())
+
+    def lipo_v():
+        try:
+            return lipo.volts()
+        except OSError:
+            return None
     ina_made = []
 
     def make_ina():
@@ -167,7 +185,8 @@ def run():
             pi_up=1 if presence.listening else 0, fs_free_kb=fs_free_kb(),
             log_unstorable=unstorable[0], battery_v=monitor.battery_v,
             battery_low_s=monitor.battery_low_s,
-            restart_blocked=1 if roboat.restart_blocked_ else 0, **extra)
+            restart_blocked=1 if roboat.restart_blocked_ else 0, lipo_v=lipo_v(),
+            pi_supply_good=1 if pi_supply.good else 0, imu_present=imu_present, **extra)
         if tlog is not None:
             fields.update(log_backlog=tlog.backlog, log_bytes=tlog.stored_bytes,
                           log_dropped=tlog.dropped, log_replayed=tlog.replayed)
@@ -179,11 +198,15 @@ def run():
         pi_link.send_update("status", current_status(**extra))
 
     def report(**extra):
-        """A status record that must not be lost: stored if the Pi isn't listening."""
-        if presence.listening:
-            send_status(**extra)
-        elif tlog is not None:
-            store(pi_link.message("status", current_status(**extra)), time.ticks_ms())
+        """A status record that must not be lost (an event): sent, and stored too.
+
+        The Pi may already be gone without the heartbeat timeout having noticed
+        yet (a power cut takes it down at once), so whether it's listening
+        can't be trusted here. Replaying a record the Pi already has is harmless.
+        """
+        msg = pi_link.send_update("status", current_status(**extra))
+        if tlog is not None:
+            store(msg, time.ticks_ms())
 
     def store(msg, now):
         if "utc_ms" in msg:
@@ -223,7 +246,7 @@ def run():
     # loop stops for maintenance.
     keep_alive.append(Timer(period=1000, mode=Timer.PERIODIC, callback=feed_wdt))
 
-    send_status(event="boot", wdt=wdt is not None, serial_repl=SERIAL_REPL)
+    report(event="boot", wdt=wdt is not None, serial_repl=SERIAL_REPL)
     last_status_ms = time.ticks_ms()
     last_snapshot_ms = time.ticks_ms()
     healthy = False
@@ -243,7 +266,7 @@ def run():
                     if tlog is not None and isinstance(ack, int):
                         tlog.ack(ack)
                     if came_back:
-                        send_status(event="pi_up")
+                        report(event="pi_up")
             if presence.check(now):
                 roboat.dispatch(PI_HEARTBEAT_TO)
                 store_snapshot(now, event="pi_down")
@@ -256,6 +279,7 @@ def run():
                 if shutdown.timed_out:
                     report(event="pi_shutdown_timeout")
                 roboat.dispatch(PI_STOPPED)
+            pi_supply.step(now, report_event)
             if tlog is not None:
                 tlog.step(now, presence.listening, pi_link.send_line)
             gps.step(now)
@@ -272,21 +296,21 @@ def run():
         # while; if nobody resets the board by then, it resets itself and
         # resumes normal operation.
         liveness.start_maintenance(time.ticks_ms())
-        flush_log()
         via_pi_link = isinstance(e, MaintenanceRequested)
-        send_status(event="maintenance", via="pi_link" if via_pi_link else "console")
+        report(event="maintenance", via="pi_link" if via_pi_link else "console")
+        flush_log()
         if via_pi_link:
             attach_repl_to_pi_link()
         print("Main loop stopped. The watchdog resets the board in {} s unless "
               "reset sooner.".format(supervisor.MAINTENANCE_S) if wdt else "Main loop stopped.")
     except Exception as e:
         supervisor.record_crash(e, time.ticks_diff(time.ticks_ms(), boot_ms))
-        flush_log()
         try:
-            send_status(event="crash", error=repr(e))
-            time.sleep_ms(100)
+            report(event="crash", error=repr(e))
         except Exception:
             pass
+        flush_log()
+        time.sleep_ms(100)
         machine.reset()
 
 
