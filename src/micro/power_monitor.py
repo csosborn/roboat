@@ -45,13 +45,12 @@ class PowerMonitor:
     failures.
     """
 
-    def __init__(self, make_ina, mppt, pi_link, battery, soc_estimator, dispatch, now_ms):
+    def __init__(self, make_ina, mppt, pi_link, battery, dispatch, now_ms):
         self.make_ina_ = make_ina
         self.ina_ = None
         self.mppt_ = mppt
         self.pi_link_ = pi_link
         self.battery_ = battery
-        self.soc_estimator_ = soc_estimator
         self.dispatch_ = dispatch
 
         self.last_ina_ms_ = now_ms
@@ -158,13 +157,13 @@ class PowerMonitor:
 
     def _update_battery_model(self, now_ms):
         mppt = self.mppt_
-        self.soc_estimator_.update(mppt.battery_volts, mppt.battery_amps, 20)
-        if self.battery_.update(now_ms, mppt.battery_volts, mppt.battery_amps):
+        battery = self.battery_
+        if battery.update(now_ms, mppt.battery_volts, mppt.battery_amps):
             self.pi_link_.send_update("battery", {
-                "cap": self.battery_.capacity_est_ / 3600.0,
-                "cap_min": self.battery_.cap_est_min_ / 3600.0,
-                "cap_max": self.battery_.cap_est_max_ / 3600.0,
-                "soc": self.soc_estimator_.soc
+                "cap": battery.capacity_est_ / 3600.0,
+                "cap_min": battery.cap_est_min_ / 3600.0,
+                "cap_max": battery.cap_est_max_ / 3600.0,
+                "soc": battery.capacity_est_ / (battery.nom_ah_ * 3600.0)
             })
 
     @property

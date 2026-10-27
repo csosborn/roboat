@@ -9,7 +9,7 @@ tools/deploy.sh --no-flash # update the Pi but leave the RP2040 alone
 tools/deploy.sh --flash    # reflash the RP2040 even if its files didn't change
 ```
 
-**While the Pi's relay drops out during an RP2040 reset** (see the power safety rules in `Compute.md`), flash with `tools/deploy.sh --flash-halt` instead. The Pi shuts down cleanly, and the RP2040 resets a minute after flashing. The relay dropping out then power-cycles the halted Pi, which boots again. The script waits for the Pi to come back and for the RP2040 to report the new commit.
+Flashing resets the RP2040, but the Pi's power stays on through the reset (see the power safety rules in `Compute.md`). `deploy.sh` fails if the Pi rebooted during the deploy. (Until 2026-10-21 the Pi's supply dropped out during an RP2040 reset, and deploys used a `--flash-halt` option to shut the Pi down first; it's gone, because with the new supply a halted Pi would stay halted.)
 
 `deploy.sh` runs `check.sh` (host tests plus a MicroPython compile of every firmware file), pushes the commit to the Pi's `deployed` branch over SSH, and runs `pi_apply.sh` there. That script:
 
@@ -19,6 +19,12 @@ tools/deploy.sh --flash    # reflash the RP2040 even if its files didn't change
 - flashes the RP2040 with `rp2040_flash.py` if `src/micro` changed. It flashes over the serial link that carries telemetry (`/dev/ttyAMA3`), stopping the monitor for the duration: the firmware's `maintenance` command moves its REPL onto that link. If the board doesn't respond, for example because its firmware predates serial deploys, it falls back to USB.
 
 The flash stages every changed file on the RP2040 and verifies it before replacing anything, then resets the board and waits for its boot status message to report the new commit. If it fails part way, the board's files are unchanged; the interrupted firmware resumes on its own within 15 minutes, or immediately with a reset.
+
+## Setting up a new RP2040
+
+The firmware runs on stock MicroPython; no custom build is needed. Flash the release for the Adafruit Feather RP2040 (https://micropython.org/download/ADAFRUIT_FEATHER_RP2040/, currently v1.29.0) over USB: hold BOOTSEL while plugging it in, and copy the `.uf2` file to the drive that appears. `tools/requirements-dev.txt` pins `mpy-cross` to the same version, so `check.sh` compiles with the board's compiler; keep the two in step when upgrading.
+
+A blank board has no firmware to answer the serial link's maintenance command, so its first deploy goes over USB: connect it to the Pi's USB (with the cable's 5 V line cut, see `Compute.md`) and run `tools/deploy.sh --flash`, which falls back to USB when the serial link doesn't respond. Later deploys go over the serial link.
 
 ## One-time Pi setup
 

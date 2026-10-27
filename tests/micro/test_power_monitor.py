@@ -60,16 +60,10 @@ class FakeLink:
 
 class FakeBattery:
     capacity_est_ = cap_est_min_ = cap_est_max_ = 0
+    nom_ah_ = 20
 
     def update(self, now, v, i):
         return False
-
-
-class FakeSoC:
-    soc = 0.5
-
-    def update(self, v, i, t):
-        pass
 
 
 def make(ina=None):
@@ -81,7 +75,7 @@ def make(ina=None):
         return inas[-1]
 
     mppt = FakeMPPT()
-    mon = pm.PowerMonitor(make_ina, mppt, FakeLink(), FakeBattery(), FakeSoC(),
+    mon = pm.PowerMonitor(make_ina, mppt, FakeLink(), FakeBattery(),
                           events.append, now_ms=0)
     return mon, mppt, events, inas
 
