@@ -20,6 +20,12 @@ Flashing resets the RP2040, but the Pi's power stays on through the reset (see t
 
 The flash stages every changed file on the RP2040 and verifies it before replacing anything, then resets the board and waits for its boot status message to report the new commit. If it fails part way, the board's files are unchanged; the interrupted firmware resumes on its own within 15 minutes, or immediately with a reset.
 
+## Setting up a new RP2040
+
+The firmware runs on stock MicroPython; no custom build is needed. Flash the release for the Adafruit Feather RP2040 (https://micropython.org/download/ADAFRUIT_FEATHER_RP2040/, currently v1.29.0) over USB: hold BOOTSEL while plugging it in, and copy the `.uf2` file to the drive that appears. `tools/requirements-dev.txt` pins `mpy-cross` to the same version, so `check.sh` compiles with the board's compiler; keep the two in step when upgrading.
+
+A blank board has no firmware to answer the serial link's maintenance command, so its first deploy goes over USB: connect it to the Pi's USB (with the cable's 5 V line cut, see `Compute.md`) and run `tools/deploy.sh --flash`, which falls back to USB when the serial link doesn't respond. Later deploys go over the serial link.
+
 ## One-time Pi setup
 
 The Pi's checkout at `~/roboat` must accept pushes to its checked-out branch, and refuse them if someone has edited files there:
