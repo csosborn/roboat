@@ -21,8 +21,8 @@ LIPO_SAMPLES = 16
 ADC_REF_V = 3.3
 
 PI_SUPPLY_GOOD_PIN = 10
-# The supply soft-starts in milliseconds; allow for that before calling a
-# missing power-good a fault.
+# Power-good must hold a new state this long before it's reported. That covers
+# the supply's soft start, and stops a chattering line flooding the event log.
 PI_SUPPLY_GRACE_MS = 3000
 
 
@@ -44,7 +44,7 @@ class PiSupplyCheck:
     def __init__(self, pg_pin, pi_power_pin, now_ms):
         self.pg_ = pg_pin
         self.power_ = pi_power_pin
-        self.on_since_ = now_ms if pi_power_pin.value() else None
+        self.changing_since_ = None
         self.faulted_ = False
 
     @property
@@ -53,15 +53,15 @@ class PiSupplyCheck:
 
     def step(self, now_ms, notify):
         if not self.power_.value():
-            self.on_since_ = None
+            self.changing_since_ = None
             self.faulted_ = False
             return
-        if self.on_since_ is None:
-            self.on_since_ = now_ms
-        if self.good:
-            if self.faulted_:
-                self.faulted_ = False
-                notify("pi_supply_good")
-        elif not self.faulted_ and time.ticks_diff(now_ms, self.on_since_) >= PI_SUPPLY_GRACE_MS:
-            self.faulted_ = True
-            notify("pi_supply_fault")
+        if self.good != self.faulted_:
+            self.changing_since_ = None  # the reading matches what was last reported
+            return
+        if self.changing_since_ is None:
+            self.changing_since_ = now_ms
+        if time.ticks_diff(now_ms, self.changing_since_) >= PI_SUPPLY_GRACE_MS:
+            self.changing_since_ = None
+            self.faulted_ = not self.faulted_
+            notify("pi_supply_fault" if self.faulted_ else "pi_supply_good")
