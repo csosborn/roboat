@@ -24,7 +24,13 @@ The flash stages every changed file on the RP2040 and verifies it before replaci
 
 The firmware runs on stock MicroPython; no custom build is needed. Flash the release for the Adafruit Feather RP2040 (https://micropython.org/download/ADAFRUIT_FEATHER_RP2040/, currently v1.29.0) over USB: hold BOOTSEL while plugging it in, and copy the `.uf2` file to the drive that appears. `tools/requirements-dev.txt` pins `mpy-cross` to the same version, so `check.sh` compiles with the board's compiler; keep the two in step when upgrading.
 
-A blank board has no firmware to answer the serial link's maintenance command, so its first deploy goes over USB: connect it to the Pi's USB (with the cable's 5 V line cut, see `Compute.md`) and run `tools/deploy.sh --flash`, which falls back to USB when the serial link doesn't respond. Later deploys go over the serial link.
+A blank board has no firmware to answer the serial link's maintenance command, so its first install goes over USB, most easily from a laptop, before the board goes into the boat:
+
+```bash
+tools/.venv/bin/python tools/rp2040_flash.py --version "$(git rev-parse --short=12 HEAD)" --port /dev/cu.usbmodemXXXX --no-boot-check
+```
+
+Later deploys go over the serial link. MicroPython keeps the board's filesystem when it's reflashed, so a used board may still hold old files; they use up space the telemetry log needs, so check with `mpremote fs ls`.
 
 ## One-time Pi setup
 

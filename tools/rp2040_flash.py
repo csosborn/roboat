@@ -228,6 +228,9 @@ def main():
                              'roboat-monitor while flashing')
     parser.add_argument('--wait', type=int, default=0, metavar='SECONDS',
                         help='wait this long for the board to appear, then interrupt it at once')
+    parser.add_argument('--no-boot-check', action='store_true',
+                        help="don't wait for the boot status message in the monitor's journal "
+                             '(for flashing a board from a laptop)')
     args = parser.parse_args()
 
     files = firmware_files(args.version)
@@ -244,6 +247,9 @@ def main():
             time.sleep(0.3)  # let the port settle after enumeration
         since = flash(args, files, paths, port)
 
+    if args.no_boot_check:
+        print('Board reset.')
+        return 0
     print('Board reset; waiting for the boot status message...')
     line = wait_for_boot(args.version, since)
     if line is None:
