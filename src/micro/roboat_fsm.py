@@ -51,7 +51,7 @@ class RoboatSM():
         self.notify_ = notify
         self.restart_blocked_ = False
         self.sm = self._get_state_machine()
-        self.drive_power_.off()
+        self._stop_drive()
         self._set_led(2, 2, 2)
 
     def _get_state_machine(self):
@@ -142,7 +142,7 @@ class RoboatSM():
         if self.pi_power_.value():
             self._notify("pi_power_cut", reason="main_power_lost")
         self._set_pi_power(False)
-        self.drive_power_.off()
+        self._stop_drive()
 
     def enter_pi_off(self, state, event):
         print('enter state {0}'.format(state.name))
@@ -162,7 +162,14 @@ class RoboatSM():
         self.drive_power_.on()
         self.schedule_(ESC_ARM_DELAY_MS, self.init_esc)
 
+    def _stop_drive(self):
+        self.drive_power_.off()
+        # A live signal can back-power an unpowered ESC through its signal pin.
+        self.drive_pwm_.duty_ns(0)
+
     def init_esc(self):
+        if not self.drive_power_.value():
+            return  # the relay went off during the arming delay
         print("Arming drive ESC")
         self.drive_pwm_.duty_ns(1500000)
         print("Drive ESC duty cycle now {}ns.".format(self.drive_pwm_.duty_ns()))
