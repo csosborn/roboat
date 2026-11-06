@@ -156,10 +156,9 @@ BEC, which will power the rudder servo.
   5 V, with the current coming from U1 instead of the pin.
 - BEC_5V only passes through the board from J6 to J8. Servo current stays on that
   path, away from the Pi's supply and the sensors.
-- R11 and R12 limit current into an unpowered ESC or servo. **Firmware fix
-  needed:** `enter_no_main_power` turns the relay off but leaves the ESC signal at
-  1.5 ms once it's armed, so it keeps pulsing into an unpowered ESC. It should drop
-  the signal low whenever the relay goes off.
+- R11 and R12 limit current into an unpowered ESC or servo. The firmware also
+  drops the ESC signal whenever the relay goes off (branch `esc-signal-off`). The
+  rudder output, when it's added, must do the same.
 
 ## Stacking on the Pi
 
