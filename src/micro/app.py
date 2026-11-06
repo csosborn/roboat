@@ -10,7 +10,6 @@ import power_policy
 from roboat_fsm import RoboatSM, START_PI, PI_HEARTBEAT, PI_HEARTBEAT_TO, PI_STOPPED
 from power_monitor import PowerMonitor
 from battery_model import BatteryModel
-from soc_estimator import LFPSoCEstimator
 from victron import VictronMPPT
 from ina260 import INA260
 from pi_link import PiLink, PiPresence
@@ -159,7 +158,7 @@ def run():
                       request_pi_shutdown=request_pi_shutdown, notify=report_event)
 
     monitor = PowerMonitor(make_ina, VictronMPPT(mppt_uart), pi_link,
-                           BatteryModel(nominal_v=12.8, nominal_ah=20), LFPSoCEstimator(),
+                           BatteryModel(nominal_v=12.8, nominal_ah=20),
                            roboat.dispatch, time.ticks_ms())
     gps = GpsMonitor(i2c1, pi_link, clock, time.ticks_ms())
 

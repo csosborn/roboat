@@ -16,7 +16,7 @@ def test_lipo_reading_undoes_the_divider_and_averages():
     # 2.1 V at the pin is a full 4.2 V LiPo.
     code = round(2.1 / 3.3 * 65535)
     sense = ps.LipoSense(FakeADC([code - 8, code + 8] * 8))
-    assert sense.volts() == pytest.approx(4.2, abs=0.002)
+    assert sense.volts() == pytest.approx(4.2 * ps.LIPO_CAL, abs=0.002)
 
 
 def run(check, pg, now):
@@ -35,7 +35,16 @@ def test_supply_fault_reported_once_after_the_grace_period():
     assert run(check, pg, 2000 + ps.PI_SUPPLY_GRACE_MS) == ["pi_supply_fault"]
     assert run(check, pg, 9000) == []
     pg.value(1)
-    assert run(check, pg, 9500) == ["pi_supply_good"]
+    assert run(check, pg, 9500) == []
+    assert run(check, pg, 9500 + ps.PI_SUPPLY_GRACE_MS) == ["pi_supply_good"]
+
+
+def test_a_chattering_power_good_reports_nothing():
+    power, pg = FakePin(1), FakePin(1)
+    check = ps.PiSupplyCheck(pg, power, now_ms=0)
+    for n in range(100):
+        pg.value(n % 2)
+        assert run(check, pg, n * 200) == []
 
 
 def test_healthy_supply_reports_nothing():
@@ -47,6 +56,7 @@ def test_healthy_supply_reports_nothing():
 def test_turning_the_pi_off_clears_a_fault():
     power, pg = FakePin(1), FakePin(0)
     check = ps.PiSupplyCheck(pg, power, now_ms=0)
+    assert run(check, pg, 0) == []
     assert run(check, pg, ps.PI_SUPPLY_GRACE_MS) == ["pi_supply_fault"]
     power.value(0)
     run(check, pg, 5000)
