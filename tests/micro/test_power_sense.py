@@ -16,7 +16,7 @@ def test_lipo_reading_undoes_the_divider_and_averages():
     # 2.1 V at the pin is a full 4.2 V LiPo.
     code = round(2.1 / 3.3 * 65535)
     sense = ps.LipoSense(FakeADC([code - 8, code + 8] * 8))
-    assert sense.volts() == pytest.approx(4.2, abs=0.002)
+    assert sense.volts() == pytest.approx(4.2 * ps.LIPO_CAL, abs=0.002)
 
 
 def run(check, pg, now):

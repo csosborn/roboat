@@ -15,8 +15,8 @@ import time
 LIPO_PIN = 26
 LIPO_DIVIDER = 2.0
 # Measured BAT voltage / reported voltage, from a one-point calibration
-# against a multimeter.
-LIPO_CAL = 1.0
+# against a multimeter (2026-11-05: 4.130 V measured, 3.993 V reported).
+LIPO_CAL = 1.034
 LIPO_SAMPLES = 16
 ADC_REF_V = 3.3
 
