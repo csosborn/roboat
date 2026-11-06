@@ -13,7 +13,8 @@ class Harness:
         self.recorded = []
         self.events = []
         self.shutdown_requests = 0
-        self.sm = fsm.RoboatSM(FakeNeoPixel(), self.pi, self.drive, FakePWM(),
+        self.esc = FakePWM()
+        self.sm = fsm.RoboatSM(FakeNeoPixel(), self.pi, self.drive, self.esc,
                                schedule=lambda ms, fn: self.scheduled.append((ms, fn)),
                                on_pi_power_on=self._powered_on,
                                record_pi_power=self.recorded.append,
@@ -90,6 +91,35 @@ def running_pi():
     h.sm.dispatch(fsm.PI_HEARTBEAT)
     assert h.sm.state == 'PiAlive'
     return h
+
+
+def test_drive_starts_with_the_relay_then_arms_the_esc():
+    h = Harness(pi_on=True)
+    h.sm.dispatch(fsm.MAIN_POWER_UP)
+    h.sm.dispatch(fsm.START_DRIVE)
+    assert h.drive.value() == 1
+    assert h.esc.duty_ns() == 0
+    h.run_scheduled()
+    assert h.esc.duty_ns() == 1500000
+
+
+def test_losing_main_power_stops_the_esc_signal_with_the_relay():
+    h = Harness(pi_on=True)
+    h.sm.dispatch(fsm.MAIN_POWER_UP)
+    h.sm.dispatch(fsm.START_DRIVE)
+    h.run_scheduled()
+    h.sm.dispatch(fsm.MAIN_POWER_DOWN)
+    assert h.drive.value() == 0
+    assert h.esc.duty_ns() == 0
+
+
+def test_esc_is_not_armed_if_the_relay_went_off_during_the_delay():
+    h = Harness(pi_on=True)
+    h.sm.dispatch(fsm.MAIN_POWER_UP)
+    h.sm.dispatch(fsm.START_DRIVE)
+    h.sm.dispatch(fsm.MAIN_POWER_DOWN)
+    h.run_scheduled()
+    assert h.esc.duty_ns() == 0
 
 
 def test_low_battery_shuts_the_pi_down_cleanly():
