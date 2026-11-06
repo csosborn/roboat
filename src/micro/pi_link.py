@@ -35,6 +35,7 @@ class PiLink:
         self.latest[src] = msg
         self.uart_.write(json.dumps(msg))
         self.uart_.write("\r\n")
+        return msg
 
     def send_request(self, action, **fields):
         """Ask the Pi to do something. Never stored or replayed."""

@@ -1,5 +1,5 @@
-# Runs before main.py on every reset, so the Pi's power relay is settled
-# before anything that could fail. See power_policy.py for the rules.
+# Runs before main.py on every reset, so the Pi's power is settled before
+# anything that could fail. See power_policy.py for the rules.
 import machine
 from machine import Pin, mem32
 
@@ -20,5 +20,5 @@ try:
     if level is not None:
         Pin(PI_POWER_PIN, Pin.OUT, value=level)
 except Exception:
-    # Leave the relay to the hardware pull-up (on); app.py takes over.
+    # Leave the pin to the level shifter's pull-up (Pi on); app.py takes over.
     pass

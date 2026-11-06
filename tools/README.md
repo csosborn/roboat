@@ -9,7 +9,7 @@ tools/deploy.sh --no-flash # update the Pi but leave the RP2040 alone
 tools/deploy.sh --flash    # reflash the RP2040 even if its files didn't change
 ```
 
-**While the Pi's relay drops out during an RP2040 reset** (see the power safety rules in `Compute.md`), flash with `tools/deploy.sh --flash-halt` instead. The Pi shuts down cleanly, and the RP2040 resets a minute after flashing. The relay dropping out then power-cycles the halted Pi, which boots again. The script waits for the Pi to come back and for the RP2040 to report the new commit.
+Flashing resets the RP2040, but the Pi's power stays on through the reset (see the power safety rules in `Compute.md`). `deploy.sh` fails if the Pi rebooted during the deploy. (Until 2026-10-21 the Pi's supply dropped out during an RP2040 reset, and deploys used a `--flash-halt` option to shut the Pi down first; it's gone, because with the new supply a halted Pi would stay halted.)
 
 `deploy.sh` runs `check.sh` (host tests plus a MicroPython compile of every firmware file), pushes the commit to the Pi's `deployed` branch over SSH, and runs `pi_apply.sh` there. That script:
 

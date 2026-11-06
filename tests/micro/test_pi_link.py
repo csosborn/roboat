@@ -1,3 +1,5 @@
+import json
+
 from pi_link import PiLink, MAX_COMMAND
 
 
@@ -80,3 +82,11 @@ def test_latest_message_kept_per_source():
     link.send_update("ina260", {"batt_v": 13.0})
     link.send_update("ina260", {"batt_v": 13.1})
     assert link.latest["ina260"]["batt_v"] == 13.1
+
+
+def test_send_update_returns_the_message_it_sent():
+    uart = FakeUart()
+    link = PiLink(uart)
+    msg = link.send_update("status", {"event": "pi_power_cut"})
+    assert json.loads(uart.out.decode().strip()) == msg
+    assert msg["event"] == "pi_power_cut" and msg["src"] == "status"
