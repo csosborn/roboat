@@ -44,8 +44,35 @@ def schematic_nets():
     return nets
 
 
+# Parts whose two ends are interchangeable: a reversed one is noted, not a problem.
+REVERSIBLE = ("R", "F")
+
+
+def unreverse(listed, actual):
+    """Swaps the pins of reversible parts that are in the right nets but backwards."""
+    notes = []
+    where = {}
+    for name, nodes in actual.items():
+        for ref, pin, func in nodes:
+            where[(ref, pin)] = (name, func)
+    refs = {ref for ref, _ in where if re.fullmatch(r"(%s)\d+" % "|".join(REVERSIBLE), ref)}
+    for ref in sorted(refs):
+        a, b = where.get((ref, "1")), where.get((ref, "2"))
+        if not a or not b or a[1] or b[1]:
+            continue
+        want1 = next((n for n, eps in listed.items() if f"{ref}.1" in eps), None)
+        want2 = next((n for n, eps in listed.items() if f"{ref}.2" in eps), None)
+        if want1 == b[0] and want2 == a[0] and a[0] != b[0]:
+            actual[a[0]].discard((ref, "1", "")); actual[a[0]].add((ref, "2", ""))
+            actual[b[0]].discard((ref, "2", "")); actual[b[0]].add((ref, "1", ""))
+            notes.append(f"note: {ref} is reversed (harmless)")
+    return notes
+
+
 def main():
     listed, actual = listed_nets(), schematic_nets()
+    for line in unreverse(listed, actual):
+        print(line)
     problems = []
     for name, wanted in listed.items():
         found = actual.pop(name, None)

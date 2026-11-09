@@ -28,9 +28,9 @@ October-November 2026, and Pololu's product pages.
 | Ref | Part | Mounting | Notes |
 |---|---|---|---|
 | A1 | Adafruit Feather RP2040 | Socketed | Pin numbers are from the `Adafruit-Feather-RP2040` KiCad symbol (github.com/bluepylons/Adafruit-RP2040-KiCAD, MIT). Its LiPo stays on its own JST connector. |
-| A2 | Adafruit INA260 breakout | Socketed | 0x40. Footprint needs checking against the real breakout. |
-| U1 | Pololu D24V7F5 | Socketed | Always-on 5 V, 600 mA. VIN, GND, VOUT at 0.1 in. No reverse-voltage protection. |
-| U2 | Pololu D36V28F5 | Socketed | Pi's 5 V. PG, EN, VIN, VOUT, GND, GND on a 0.1 in grid; PG isn't on the board edge. Two M2 holes. |
+| A2 | Adafruit INA260 breakout | Socketed | 0x40. Footprint `roboat:Adafruit_INA260_Breakout`, from Adafruit's board file. |
+| U1 | Pololu D24V7F5 | Socketed | Always-on 5 V, 600 mA. Footprint `roboat:Pololu_D24V7F5`: VIN, GND, VOUT at 0.1 in. No reverse-voltage protection. |
+| U2 | Pololu D36V28F5 | Socketed | Pi's 5 V. Footprint `roboat:Pololu_D36V28F5`: EN, VIN, GND, GND, VOUT in a row, PG 0.1 in above EN. Two M2 holes. |
 | Q1 | BSS138 | Soldered | Replaces the level shifter: it's the same circuit as the one channel in use. |
 | Q2 | BSS138 | Soldered | New: switches the drive relay's input from 5 V. |
 | R1 | 10k | Soldered | Holds GPIO11 high during an RP2040 reset. Don't raise this value (see below). |
@@ -42,9 +42,9 @@ October-November 2026, and Pololu's product pages.
 | R11, R12 | 1k | Soldered | New: series resistors on the ESC and rudder signals. |
 | C1 | 0.1 uF | Soldered | At A0, as close to the socket pin as possible. |
 | C2 | 33 uF, 50 V electrolytic | Soldered | New: at U1's VIN. Pololu warns of destructive LC spikes on U1, whose limit is 36 V. |
-| D1 | Schottky, 1 A | Soldered | New: see open question 2. |
+| D1 | SS12 Schottky, 20 V 1 A, SMA | Soldered | New: see open question 2. About 0.3-0.4 V drop at the RP2040 side's 0.1-0.3 A. |
 | D2 | SMBJ18A TVS | Soldered | New: clamps spikes from the motor sharing the load output, to about 29 V against U1's 36 V limit. Reverse polarity makes it conduct and blow F1. |
-| F1 | Fuse, 3 A slow-blow (proposed) | Holder | New: covers the load input. Sized for the logic and Pi only, about 1 A. The ESC's feed never crosses the board. |
+| F1 | Bel Fuse 0685T3000-01: 3 A slow-blow, 63 V, 50 A breaking, 1206 | Soldered | New: covers the load input. Sized for the logic and Pi only, about 1 A. The ESC's feed never crosses the board. 50 A breaking is enough because the Victron's load output limits its own short-circuit current. Not field-replaceable: a blown F1 means rework. |
 | J1 | Load input, 2 pins | Screw terminal or similar | From the Victron's load output, on its own wires. The ESC's relay taps the load output separately. 1 = +, 2 = GND. |
 | J2 | Raspberry Pi 40-pin header | 2x20 female, underside | The board stacks on the Pi. Numbers are the Pi's physical pins. Mirrored in layout: see below. |
 | J3 | VE.Direct, 4 pins | To match the Victron cable | 1 = GND, 2 = RX, 3 = TX, 4 = +5 V. Check against the real connector. |
@@ -226,7 +226,7 @@ Still open:
    whether the NeoPixel needs to be visible once installed.
 2. **D1, the USB diode:** the Feather's USB pin is its USB port's 5 V line, so
    plugging in a laptop with the board powered ties the laptop's 5 V to U1's
-   output. D1 prevents that, but costs about 0.3 V, leaving about 4.7 V. That
+   output. D1 (an SS12) prevents that, but costs about 0.3-0.4 V, leaving about 4.6-4.7 V. That
    should still charge the LiPo, but check it. The alternative is no diode and a
    rule never to plug in USB with the board powered.
 3. **Reverse polarity:** D2 and F1 give basic protection, and a keyed J1 prevents
