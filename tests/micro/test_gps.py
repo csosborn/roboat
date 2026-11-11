@@ -125,6 +125,35 @@ def test_fix_reported_and_clock_set():
     assert c.now_ms() is not None
 
 
+RMC_OLD = sentence('GNRMC,190428.250,A,3746.4940,N,12225.1640,W,1.94,87.5,111026,,,A')
+
+
+class BacklogI2C(FakeI2C):
+    """Returns the stream without padding until it's all been read, as the
+    module does with a buffer full of sentences sent while nobody read them."""
+
+    def readfrom(self, addr, n):
+        if len(self.stream) >= n:
+            chunk, self.stream = self.stream[:n], self.stream[n:]
+            return chunk
+        return FakeI2C.readfrom(self, addr, n)
+
+
+def test_clock_set_only_once_the_backlog_is_read():
+    i2c = BacklogI2C((GSA + GGA + RMC_OLD) * 3 + GSA + GGA + RMC)
+    c = clk.Clock()
+    mon = gps_mod.GpsMonitor(SharedBus(lambda: i2c), FakeLink(), c, now_ms=0)
+    t = 0
+    while len(i2c.stream) >= gps_mod.READ_BYTES:
+        mon.step(t)
+        assert c.now_ms(t) is None  # stale fixes don't set it
+        t += gps_mod.POLL_MS
+    drain(mon, start=t)
+    current = clk.utc_ms((2026, 10, 11), (19, 4, 38, 250))
+    # Stamped from the newest RMC, at the poll that read it.
+    assert current - 2 * gps_mod.POLL_MS <= c.now_ms(t) <= current
+
+
 def test_no_fix_reports_mode_without_position_or_time():
     mon, i2c, link, c = make(RMC_NO_FIX)
     drain(mon)

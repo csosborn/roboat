@@ -169,9 +169,6 @@ def run():
     except OSError:
         tlog = None
     untimed = Untimed()  # records made before the GPS gave the time
-    # The Pi's monitor heartbeats every 2 s, so a record made this long before it
-    # was first heard reached it live.
-    delivered_window_ms = 3000
 
     def fs_free_kb():
         try:
@@ -274,7 +271,7 @@ def run():
                     if tlog is not None and isinstance(ack, int):
                         tlog.ack(ack)
                     if came_back:
-                        untimed.delivered(time.ticks_add(now, -delivered_window_ms))
+                        untimed.delivered(now)
                         report(event="pi_up")
             if presence.check(now):
                 roboat.dispatch(PI_HEARTBEAT_TO)
