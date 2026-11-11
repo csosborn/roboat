@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Writes the footprints in lib/roboat.pretty for the socketed modules.
+"""Writes the footprints in lib/roboat.pretty for the socketed modules, and J2's
+Pi header without pin 3: a footprint derived from KiCad's own 2x20 socket and a
+matching symbol, added to lib/roboat.kicad_sym.
 
 Usage: python3 tools/generate_footprints.py [output.pretty [feather.kicad_mod]]
        (default lib/roboat.pretty; the INA260's block model goes in the sibling roboat.3dshapes)
@@ -15,6 +17,8 @@ side up), with the origin at the board's lower-left corner and Y up:
 Each footprint's origin is its pad 1. Pin names on the Pololu boards were read off
 the real modules and agree with the dimension diagrams.
 """
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -142,6 +146,78 @@ FOOTPRINTS = [
     ),
 ]
 
+KICAD_APP = Path(os.environ.get("KICAD_APP", "/Applications/KiCad/KiCad.app"))
+KICAD_FOOTPRINTS = KICAD_APP / "Contents/SharedSupport/footprints"
+KICAD_SYMBOLS = KICAD_APP / "Contents/SharedSupport/symbols"
+
+# J2, the Pi's header, without pin 3: there's no copper at pin 3, so 5V_PI can reach
+# pins 2 and 4 through the inner row. Pin 3's contact is pushed out of the real
+# socket: it is the Pi's GPIO2 (I2C1 SDA), which must never touch the 5 V copper
+# that runs there now. KiCad drops the number of a pad without copper, so the
+# symbol loses pin 3 as well, keeping the schematic and the board in step.
+NOPIN3_FOOTPRINT = "PinSocket_2x20_P2.54mm_Vertical_NoPin3"
+NOPIN3_SYMBOL = "Pi_Header_2x20_NoPin3"
+
+
+def socket_without_pin3():
+    """KiCad's 2x20 socket footprint with pad 3 removed and its place marked."""
+    stock = KICAD_FOOTPRINTS / "Connector_PinSocket_2.54mm.pretty/PinSocket_2x20_P2.54mm_Vertical.kicad_mod"
+    text = stock.read_text()
+    name = NOPIN3_FOOTPRINT
+    text = text.replace('(footprint "PinSocket_2x20_P2.54mm_Vertical"', f'(footprint "{name}"', 1)
+    text = text.replace('(property "Value" "PinSocket_2x20_P2.54mm_Vertical"', f'(property "Value" "{name}"', 1)
+    text, n = re.subn(r'\(descr "([^"]*)"\)',
+                      r'(descr "\1. Pin 3 removed: no copper there, and its contact pushed out of the socket")',
+                      text, count=1)
+    assert n == 1
+    pad3 = re.compile(r'\t\(pad "3" thru_hole circle\n\t\t\(at ([-\d.]+) ([-\d.]+)\)\n.*?\n\t\)\n', re.S)
+    m = pad3.search(text)
+    assert m, "pad 3 not found in the stock footprint"
+    x, y = m.group(1), m.group(2)
+    marker = (f'\t(fp_circle (center {x} {y}) (end {float(x) + 0.85} {y}) '
+              '(stroke (width 0.1) (type dash)) (fill no) (layer "F.Fab"))\n'
+              f'\t(fp_text user "no pin" (at {x} {y} 0) (layer "F.Fab") '
+              '(effects (font (size 0.4 0.4) (thickness 0.06))))\n')
+    text = text[:m.start()] + marker + text[m.end():]
+    return name, text
+
+
+def header_symbol_without_pin3():
+    """KiCad's Conn_02x20_Odd_Even symbol with pin 3 removed, defaulting to the footprint above."""
+    stock = (KICAD_SYMBOLS / "Connector_Generic.kicad_sym").read_text()
+    m = re.search(r'\t\(symbol "Conn_02x20_Odd_Even"\n', stock)
+    end = stock.index('\n\t)\n', m.start()) + 4
+    text = stock[m.start():end]
+    text = text.replace('"Conn_02x20_Odd_Even', f'"{NOPIN3_SYMBOL}')
+    text, n = re.subn(r'(\(property "Value" )"[^"]*"', rf'\1"{NOPIN3_SYMBOL}"', text, count=1)
+    assert n == 1
+    text, n = re.subn(r'(\(property "Footprint" )"[^"]*"', rf'\1"roboat:{NOPIN3_FOOTPRINT}"', text, count=1)
+    assert n == 1
+    text, n = re.subn(r'(\(property "Description" )"[^"]*"',
+                      r'\1"Raspberry Pi 40-pin header, 2x20, without pin 3 (GPIO2): its socket contact is removed"',
+                      text, count=1)
+    assert n == 1
+    pin3 = re.compile(r'\t\t\t\(pin passive line\n(?:(?!\t\t\t\(pin ).)*?\(number "3"\n.*?\n\t\t\t\)\n', re.S)
+    text, n = pin3.subn("", text)
+    assert n == 1, n
+    return text
+
+
+def add_symbol(lib_path, name, text):
+    """Adds the symbol to the library, replacing any symbol of the same name."""
+    lib = Path(lib_path).read_text()
+    m = re.search(r'\(symbol "%s"' % re.escape(name), lib)
+    if m:  # the symbol runs to the end of its line (this library is one symbol per line) or block
+        start = lib.rindex("\n", 0, m.start()) + 1
+        end = lib.index("\n(symbol", start) + 1 if "\n(symbol" in lib[start:] else lib.rindex("\n)")
+        lib = lib[:start] + lib[end:]
+    i = lib.rstrip().rindex(")")
+    Path(lib_path).write_text(lib[:i].rstrip() + "\n" + text.strip() + "\n)\n")
+
+
+FOOTPRINTS.append(socket_without_pin3())
+
+
 def ina260_wrl():
     """A plain block model of the INA260 breakout: board, terminal block, chip.
     Footprint coordinates in mm (pad 1 at the origin, Y up), underside of the board at z = 0."""
@@ -186,6 +262,9 @@ if __name__ == "__main__":
     shapes.mkdir(exist_ok=True)
     (shapes / "Adafruit_INA260_Breakout.wrl").write_text(ina260_wrl())
     print("wrote", shapes / "Adafruit_INA260_Breakout.wrl")
+    sym = out.parent / "roboat.kicad_sym"
+    add_symbol(sym, NOPIN3_SYMBOL, header_symbol_without_pin3())
+    print("wrote", NOPIN3_SYMBOL, "in", sym)
     if len(sys.argv) > 2:  # also add the 3D models to the Feather's footprint file given
         add_models(sys.argv[2], FEATHER_MODELS)
         print("added models to", sys.argv[2])

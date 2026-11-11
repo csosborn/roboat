@@ -46,7 +46,7 @@ October-November 2026, and Pololu's product pages.
 | D2 | SMBJ18A TVS | Soldered | New: clamps spikes from the motor sharing the load output, to about 29 V against U1's 36 V limit. Reverse polarity makes it conduct and blow F1. |
 | F1 | Bel Fuse 0685T3000-01: 3 A slow-blow, 63 V, 50 A breaking, 1206 | Soldered | New: covers the load input. Sized for the logic and Pi only, about 1 A. The ESC's feed never crosses the board. 50 A breaking is enough because the Victron's load output limits its own short-circuit current. Not field-replaceable: a blown F1 means rework. |
 | J1 | Load input, 2 pins | Screw terminal or similar | From the Victron's load output, on its own wires. The ESC's relay taps the load output separately. 1 = +, 2 = GND. |
-| J2 | Raspberry Pi 40-pin header | 2x20 female, underside | The board stacks on the Pi. Numbers are the Pi's physical pins. Mirrored in layout: see below. |
+| J2 | Raspberry Pi 40-pin header, without pin 3 | 2x20 female, underside | The board stacks on the Pi. Numbers are the Pi's physical pins. Mirrored in layout: see below. Pin 3's contact is pushed out of the socket: see below. Symbol `roboat:Pi_Header_2x20_NoPin3`, footprint `roboat:PinSocket_2x20_P2.54mm_Vertical_NoPin3`. |
 | J3 | VE.Direct, 4 pins | To match the Victron cable | 1 = GND, 2 = RX, 3 = TX, 4 = +5 V. Check against the real connector. |
 | J4 | STEMMA QT (JST SH 4) | SMD | I2C1, for the GPS and IMU. 1 = GND, 2 = 3.3 V, 3 = SDA, 4 = SCL. |
 | J5 | STEMMA QT (JST SH 4) | SMD | New: I2C0, so the IMU can leave the shared bus without a new board. Same pinout as J4. |
@@ -162,22 +162,30 @@ BEC, which will power the rudder servo.
 
 ## Stacking on the Pi
 
-The board mounts rigidly on the 40-pin header, but it doesn't need to match the
-Pi's outline. It can overhang as far as it likes, and can carry its modules on
-either side.
+The board sits on the Pi's 40-pin header, covering most of the Pi, and overhangs
+on the side away from the USB and Ethernet ports. `tools/add_pi4_outline.py` draws
+the Pi beneath it, from Raspberry Pi's mechanical drawing (RP-008342-DS), as one
+group that moves together.
 
-- **Overhang away from the CPU:** the header runs along one long edge of the Pi.
-  Extend the board outward past that edge, and it covers only a narrow strip of
-  the Pi. The CPU stays uncovered, so no cutout is needed, a heatsink can be any
-  height, and the Pi keeps the airflow it has now. Check the strip against
-  Raspberry Pi's mechanical drawing, including the PoE pins beside the header.
-- **Power path:** the even pins, including 5 V on pins 2 and 4, are in the row
-  nearest the Pi's edge, so they face the overhang. U2 can sit right beside them,
-  which makes the 5 V path very short. Five of the eight ground pins are in that
-  row too.
-- **Support:** the header can't carry a cantilever on a boat. Use standoffs at the
-  Pi's two mounting holes along that edge (58 mm apart, M2.5), and add holes at the
-  far corners of the overhang, fixed to the same base as the Pi.
+- **Height:** the usual 8.5 mm socket puts the board's underside about 11 mm above
+  the Pi. The USB and Ethernet ports stand taller than that, so the board stays
+  clear of them.
+- **CPU cutout:** the board has a cutout above the CPU, so a heatsink can come up
+  through it.
+- **WiFi antenna:** the Pi's antenna is the strip between its pin 1 corner and its
+  WiFi can. A keepout on both copper layers, part of the Pi group, keeps tracks,
+  vias, pads and pours off the board above it, including the overhang beside it.
+  The position is inferred from the parts around the antenna; check it on a real Pi.
+- **No pin 3:** the inner row (pins 1, 3, 5) stands between U2 and the 5 V pins 2
+  and 4, and its pads leave no room for a track. Pin 3 is the Pi's GPIO2 (I2C1 SDA,
+  with a 1.8 kOhm pull-up on the Pi), unused here, so J2 has no copper there and
+  5V_PI runs through the gap. **Push pin 3's contact right out of the socket before
+  fitting it**, rather than clipping its tail: a contact left in place would touch
+  the Pi's GPIO2 just above 5 V copper under only solder mask. This gives up the
+  Pi's I2C1; its other I2C buses can be enabled on other pins if ever needed.
+- **Support:** the header can't carry the board on a boat. Use standoffs at the
+  Pi's four mounting holes (H1-H4, M2.5), and add holes at the far corners of any
+  overhang, fixed to the same base as the Pi.
 - **J2 is on the underside:** a socket on the back of the board mirrors the pin
   order compared with the Pi's top view. Check it on a 1:1 print against a real
   Pi before ordering.

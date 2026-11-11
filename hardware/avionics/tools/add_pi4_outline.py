@@ -6,7 +6,9 @@ Adds, as one group:
     mechanical drawing (RP-008342-DS, the Pi 4 DXF);
   - its four M2.5 mounting holes, as board-only footprints H1-H4;
   - J2 moved and turned so its pins meet the Pi's header;
-  - a cutout in the board above the CPU.
+  - a cutout in the board above the CPU;
+  - a keepout (no tracks, vias, pads or pours, on either layer) above the
+    Pi's WiFi antenna.
 Moving the group in KiCad moves all of these together. The board's own outline
 (Edge.Cuts) is left alone: draw it to suit, keeping clear of the Pi's USB and
 Ethernet ports, which stand taller than the header stack.
@@ -16,6 +18,10 @@ Run it with KiCad's own Python while the board is closed in KiCad:
       tools/add_pi4_outline.py avionics.kicad_pcb [X Y]
 X, Y is where the Pi's top-left corner goes, in mm (default 100, 130).
 Run it once: it stops if the board already has the group.
+
+  python3 tools/add_pi4_outline.py avionics.kicad_pcb --antenna
+adds only the antenna and its keepout to a board that already has the group,
+finding the Pi from its mounting holes. It stops if the keepout is there.
 """
 import sys
 
@@ -52,26 +58,57 @@ PARTS = [
 NOTE = ("Raspberry Pi 4 below this board (RP-008342-DS).",
         "Ethernet and USB stand taller than the 11 mm header stack.")
 
+# The WiFi antenna: the strip between the board's left edge and the WiFi can.
+# The DXF has no copper, so this is inferred from the parts around it (its
+# matching parts at the edge, Proant's licence text just below, the can, and
+# the mounting hole above).
+ANTENNA = (0.0, 39.3, 6.6, 50.0)
+# No copper on our board above it, on either layer. It reaches well past the
+# Pi's left edge to cover an overhang there, and stops short of J2's pin 1.
+KEEPOUT = (-20.0, 37.5, 7.5, 50.0)
+KEEPOUT_NAME = "Pi WiFi antenna"
+
 GROUP = "Raspberry Pi 4 (below)"
 HOLE_LIB ="/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints/MountingHole.pretty"
 HOLE_FP = "MountingHole_2.7mm_M2.5"
 
 
-def main(path, ox=100.0, oy=130.0):
+def pi_origin(board):
+    """The Pi's top-left corner, found from mounting holes H1 and H3."""
+    h1 = board.FindFootprintByReference("H1")
+    h3 = board.FindFootprintByReference("H3")
+    if not (h1 and h3):
+        sys.exit("The board has no H1 and H3 to find the Pi by")
+    p1, p3 = h1.GetPosition(), h3.GetPosition()
+    if p1.x != p3.x:
+        sys.exit("H1 and H3 aren't aligned: the Pi seems rotated, which this doesn't handle")
+    (x1, y1), (x3, y3) = HOLES[0], HOLES[2]
+    return pcbnew.ToMM(p1.x) - x1, pcbnew.ToMM(p3.y) - (PI_H - y3)
+
+
+def main(path, ox=100.0, oy=130.0, antenna_only=False):
     board = pcbnew.LoadBoard(path)
+    existing = [g for g in board.Groups() if g.GetName() == GROUP]
+    if antenna_only:
+        if not existing:
+            sys.exit(f"The board has no group '{GROUP}' to add the antenna to")
+        if any(z.GetZoneName() == KEEPOUT_NAME for z in board.Zones()):
+            sys.exit(f"The board already has the keepout '{KEEPOUT_NAME}'")
+        ox, oy = pi_origin(board)
+        print(f"Pi's top-left corner at ({ox:.2f}, {oy:.2f})")
+        group = existing[0]
+    else:
+        # KiCad 10's Python bindings can't read a group's members back, so a
+        # rerun can't tidy up after the last run. Move the group in KiCad instead.
+        if existing:
+            sys.exit(f"The board already has the group '{GROUP}'. Move it in KiCad, "
+                     "or start again from a board without it.")
+        group = pcbnew.PCB_GROUP(board)
+        group.SetName(GROUP)
+        board.Add(group)
 
     def at(x, y):  # Pi coordinates to board coordinates
         return pcbnew.VECTOR2I(MM(ox + x), MM(oy + PI_H - y))
-
-    # KiCad 10's Python bindings can't read a group's members back, so a rerun
-    # can't tidy up after the last run. Move the group in KiCad instead.
-    if any(g.GetName() == GROUP for g in board.Groups()):
-        sys.exit(f"The board already has the group '{GROUP}'. Move it in KiCad, "
-                 "or start again from a board without it.")
-
-    group = pcbnew.PCB_GROUP(board)
-    group.SetName(GROUP)
-    board.Add(group)
 
     def add(item):
         board.Add(item)
@@ -119,6 +156,34 @@ def main(path, ox=100.0, oy=130.0):
         t.SetTextSize(pcbnew.VECTOR2I(MM(size), MM(size)))
         t.SetTextThickness(MM(size * 0.15))
         return t
+
+    def antenna():
+        x0, y0, x1, y1 = ANTENNA
+        for s in rounded(x0, y0, x1, y1, 0, pcbnew.Dwgs_User, 0.1):
+            add(s)
+        t = add(text("WiFi antenna", (x0 + x1) / 2, (y0 + y1) / 2, 0.8))
+        t.SetTextAngleDegrees(90)
+
+        x0, y0, x1, y1 = KEEPOUT
+        z = pcbnew.ZONE(board)
+        z.SetIsRuleArea(True)
+        z.SetZoneName(KEEPOUT_NAME)
+        z.SetLayerSet(pcbnew.LSET.AllCuMask())
+        z.SetDoNotAllowTracks(True)
+        z.SetDoNotAllowVias(True)
+        z.SetDoNotAllowPads(True)
+        z.SetDoNotAllowZoneFills(True)
+        z.SetDoNotAllowFootprints(False)
+        outline = z.Outline()
+        outline.NewOutline()
+        for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+            outline.Append(at(x, y))
+        add(z)
+
+    if antenna_only:
+        antenna()
+        board.Save(path)
+        return
 
     # The Pi and its parts, for reference.
     for s in rounded(0, 0, PI_W, PI_H, CORNER, pcbnew.Dwgs_User, 0.2):
@@ -172,9 +237,14 @@ def main(path, ox=100.0, oy=130.0):
     for s in rounded(x0 - m, y0 - m, x1 + m, y1 + m, CUTOUT_CORNER, pcbnew.Edge_Cuts, 0.1):
         add(s)
 
+    antenna()
     board.Save(path)
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    main(args[0], *(float(a) for a in args[1:3]))
+    if "--antenna" in args:
+        args.remove("--antenna")
+        main(args[0], antenna_only=True)
+    else:
+        main(args[0], *(float(a) for a in args[1:3]))

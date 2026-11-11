@@ -5,7 +5,9 @@
   rather than a power output, so ERC doesn't report the Feather's one rail as two
   outputs shorted together; and the footprint has 3D models added by
   `tools/generate_footprints.py` (see 3D models below).
-- `roboat.kicad_sym`: symbols for the Pololu regulators and the INA260 breakout.
+- `roboat.kicad_sym`: symbols for the Pololu regulators and the INA260 breakout, and
+  `Pi_Header_2x20_NoPin3` for J2 (KiCad's `Conn_02x20_Odd_Even` without pin 3, added
+  by `tools/generate_footprints.py`).
   Pin numbers match the footprints' pad numbers.
 - `roboat.pretty`: footprints for the socketed modules, written by
   `tools/generate_footprints.py`. Each one's origin is its pad 1, drawn from the
@@ -15,6 +17,8 @@
     corner holes are 2.4 mm non-plated, for M2 standoffs.
   - `Pololu_D24V7F5`: from Pololu's drill guide `reg35b-drill.dxf` (item 5593).
     Pads 1-3: VIN, GND, VOUT. No mounting holes.
+  - `PinSocket_2x20_P2.54mm_Vertical_NoPin3`: KiCad's 2x20 socket with pad 3 removed, so
+    5 V can reach pins 2 and 4 through the inner row. See "No pin 3" in `connections.md`.
   - The Pololu pin names were read off the real boards, and agree with the drawings.
   - `Adafruit_INA260_Breakout`: Adafruit product 4226, from the pad and hole positions in
     github.com/adafruit/Adafruit-INA260-PCB (`Adafruit INA260.brd`, CC BY-SA 3.0,
