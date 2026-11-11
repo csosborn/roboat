@@ -18,6 +18,7 @@ from gps import GpsMonitor
 from shared_bus import SharedBus
 from scheduler import Scheduler
 from telemetry_log import TelemetryLog
+from untimed import Untimed
 from pi_shutdown import PiShutdown
 from power_sense import LipoSense, PiSupplyCheck, LIPO_PIN, PI_SUPPLY_GOOD_PIN
 
@@ -167,7 +168,10 @@ def run():
         tlog = TelemetryLog(time.ticks_ms())
     except OSError:
         tlog = None
-    unstorable = [0]  # snapshots skipped because GPS time wasn't known yet
+    untimed = Untimed()  # records made before the GPS gave the time
+    # The Pi's monitor heartbeats every 2 s, so a record made this long before it
+    # was first heard reached it live.
+    delivered_window_ms = 3000
 
     def fs_free_kb():
         try:
@@ -182,7 +186,8 @@ def run():
             mppt_errors=monitor.mppt_errors, gps_mode=gps.mode, gps_errors=gps.errors,
             gps_fixes=gps.fixes, time_valid=clock.valid, i2c_rebuilds=i2c1.rebuilds,
             pi_up=1 if presence.listening else 0, fs_free_kb=fs_free_kb(),
-            log_unstorable=unstorable[0], battery_v=monitor.battery_v,
+            log_unstorable=untimed.dropped, log_untimed=untimed.held,
+            battery_v=monitor.battery_v,
             battery_low_s=monitor.battery_low_s,
             restart_blocked=1 if roboat.restart_blocked_ else 0, lipo_v=lipo_v(),
             pi_supply_good=1 if pi_supply.good else 0, imu_present=imu_present, **extra)
@@ -210,8 +215,12 @@ def run():
     def store(msg, now):
         if "utc_ms" in msg:
             tlog.record(msg, now)
-        else:
-            unstorable[0] += 1
+        elif not presence.listening:
+            untimed.hold(msg, now)
+
+    def store_untimed(now):
+        for msg in untimed.release(clock.now_ms(now), now):
+            tlog.record(msg, now)
 
     snapshotted = {}  # src -> the message last stored for it, so a stale one isn't stored twice
 
@@ -265,6 +274,7 @@ def run():
                     if tlog is not None and isinstance(ack, int):
                         tlog.ack(ack)
                     if came_back:
+                        untimed.delivered(time.ticks_add(now, -delivered_window_ms))
                         report(event="pi_up")
             if presence.check(now):
                 roboat.dispatch(PI_HEARTBEAT_TO)
@@ -280,6 +290,8 @@ def run():
                 roboat.dispatch(PI_STOPPED)
             pi_supply.step(now, report_event)
             if tlog is not None:
+                if untimed.held:
+                    store_untimed(now)
                 tlog.step(now, presence.listening, pi_link.send_line)
             gps.step(now)
             if not monitor.step(now):
