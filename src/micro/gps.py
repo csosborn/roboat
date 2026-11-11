@@ -7,6 +7,9 @@ GPS_ADDR = 0x10  # Adafruit Mini GPS PA1010D
 POLL_MS = 50
 READ_BYTES = 64
 ERROR_BACKOFF_MS = 1000
+# An RMC sets the clock only if it was read this close to the time since the
+# last RMC that its own time says has passed (see GpsMonitor).
+RMC_MATCH_MS = 200
 MAX_LINE = 100
 
 # Output only RMC, GGA, and GSA, once per fix.
@@ -23,9 +26,13 @@ class GpsMonitor:
     send; real sentences end with '\\r\\n'.
 
     The module keeps sending while nobody reads, and buffers what it sends: after
-    the RP2040 resets, the first sentences read can be seconds old (10 s after a
-    deploy on 2026-11-10). So the clock is set only from the last RMC read before
-    the padding shows the buffer has been emptied, which makes that RMC current.
+    the RP2040 resets, the first sentences read can be seconds old (12 s after a
+    deploy on 2026-11-10). Padding doesn't show the backlog is gone: the module
+    pads between fixes while it still has one. But a backlog reads faster than
+    real time (an RMC every 0.2 s against one a second), so an RMC is current only
+    if the time since the last one, by ticks, matches the step in their GPS times.
+    Only then does it set the clock. This also skips the stale RMC read after the
+    RP2040 has been too busy to read for a second or more.
     """
 
     def __init__(self, bus, pi_link, clock, now_ms):
@@ -36,7 +43,7 @@ class GpsMonitor:
         self.next_poll_ms_ = now_ms
         self.configured_ = False
         self.fix_type_ = 0
-        self.unconfirmed_time_ = None  # (utc_ms, ticks) of the last RMC, until caught up
+        self.last_rmc_ = None  # (utc_ms, ticks) of the last RMC with a time
         self.gga_ = {}
         self.errors = 0
         self.fixes = 0
@@ -68,10 +75,7 @@ class GpsMonitor:
                     line = bytes(self.buf_[:-1])
                     self.buf_ = bytearray()
                     self._handle(line, now_ms)
-                elif self.unconfirmed_time_ is not None:
-                    # Padding: the module had nothing more, so the last RMC is current.
-                    self.clock_.set(*self.unconfirmed_time_)
-                    self.unconfirmed_time_ = None
+                # Otherwise it's padding.
             else:
                 self.buf_.append(b)
                 if len(self.buf_) > MAX_LINE:
@@ -96,7 +100,12 @@ class GpsMonitor:
 
     def _report(self, rmc, now_ms):
         if rmc['valid'] and 'date' in rmc and 'time' in rmc:
-            self.unconfirmed_time_ = (utc_ms(rmc['date'], rmc['time']), now_ms)
+            utc = utc_ms(rmc['date'], rmc['time'])
+            last = self.last_rmc_
+            if last is not None and abs(
+                    time.ticks_diff(now_ms, last[1]) - (utc - last[0])) <= RMC_MATCH_MS:
+                self.clock_.set(utc, now_ms)
+            self.last_rmc_ = (utc, now_ms)
         fields = {"error": 0, "mode": self.fix_type_ if rmc['valid'] else 1,
                   "sats": self.gga_.get('sats', 0)}
         if rmc['valid'] and rmc['lat_e7'] is not None and rmc['lon_e7'] is not None:
