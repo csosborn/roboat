@@ -122,36 +122,52 @@ def test_fix_reported_and_clock_set():
     assert fix['lat_e7'] == 377749000 and fix['lon_e7'] == -1224194000
     assert fix['alt'] == 12.3
     assert fix['time'] == '2026-10-11T19:04:38.250Z'
-    assert c.now_ms() is not None
 
 
-RMC_OLD = sentence('GNRMC,190428.250,A,3746.4940,N,12225.1640,W,1.94,87.5,111026,,,A')
+def rmc_at(second):
+    return sentence('GNRMC,1904{:02d}.000,A,3746.4940,N,12225.1640,W,1.94,87.5,111026,,,A'
+                    .format(second))
 
 
-class BacklogI2C(FakeI2C):
-    """Returns the stream without padding until it's all been read, as the
-    module does with a buffer full of sentences sent while nobody read them."""
-
-    def readfrom(self, addr, n):
-        if len(self.stream) >= n:
-            chunk, self.stream = self.stream[:n], self.stream[n:]
-            return chunk
-        return FakeI2C.readfrom(self, addr, n)
+def utc_at(second):
+    return clk.utc_ms((2026, 10, 11), (19, 4, second, 0))
 
 
-def test_clock_set_only_once_the_backlog_is_read():
-    i2c = BacklogI2C((GSA + GGA + RMC_OLD) * 3 + GSA + GGA + RMC)
-    c = clk.Clock()
-    mon = gps_mod.GpsMonitor(SharedBus(lambda: i2c), FakeLink(), c, now_ms=0)
+def test_backlog_does_not_set_the_clock():
+    # After a reset the module's backlog reads an RMC every ~0.2 s, padded
+    # between fixes like live output (seen 2026-11-10 after a deploy).
+    mon, i2c, link, c = make()
     t = 0
-    while len(i2c.stream) >= gps_mod.READ_BYTES:
-        mon.step(t)
-        assert c.now_ms(t) is None  # stale fixes don't set it
-        t += gps_mod.POLL_MS
-    drain(mon, start=t)
-    current = clk.utc_ms((2026, 10, 11), (19, 4, 38, 250))
-    # Stamped from the newest RMC, at the poll that read it.
-    assert current - 2 * gps_mod.POLL_MS <= c.now_ms(t) <= current
+    for second in range(10, 22):
+        mon._feed(GSA + GGA + rmc_at(second) + b'\n' * 20, t)
+        assert c.now_ms(t) is None
+        t += 220
+    # Caught up: the next one comes a second later and is current.
+    t += 1000 - 220
+    mon._feed(GSA + GGA + rmc_at(22) + b'\n' * 20, t)
+    assert c.now_ms(t) == utc_at(22)
+
+
+def test_live_fixes_keep_setting_the_clock():
+    mon, i2c, link, c = make()
+    mon._feed(rmc_at(30), 0)
+    assert c.now_ms(0) is None  # one RMC alone proves nothing
+    mon._feed(rmc_at(31), 1030)
+    mon._feed(rmc_at(32), 1990)
+    assert c.now_ms(1990) == utc_at(32)
+
+
+def test_rmc_read_late_after_a_stall_is_skipped():
+    mon, i2c, link, c = make()
+    mon._feed(rmc_at(40), 0)
+    mon._feed(rmc_at(41), 1000)
+    assert c.now_ms(1000) == utc_at(41)
+    # The RP2040 was busy for 1.6 s: RMC 42 is read 0.6 s late, 43 on time.
+    mon._feed(rmc_at(42), 2600)
+    mon._feed(rmc_at(43), 3000)
+    assert c.now_ms(3000) == utc_at(41) + 2000  # still from 41: neither is trusted
+    mon._feed(rmc_at(44), 4000)
+    assert c.now_ms(4000) == utc_at(44)
 
 
 def test_no_fix_reports_mode_without_position_or_time():
