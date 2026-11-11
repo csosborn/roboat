@@ -13,13 +13,19 @@ oldest non-event records go first.
 
 Only records the Pi might not have had belong here. One sent while the Pi was
 listening reached InfluxDB live, stamped with the Pi's arrival time; storing it
-too would add a second point at a slightly different time.
+too would add a second point at a slightly different time. The RP2040 can't
+always tell: after a reset, the Pi's first heartbeat comes up to 2 s after the
+boot event. So every record is held at least HOLD_MS, even once the time is
+known, and delivered() forgets those the Pi's first heartbeat shows it heard.
 """
 import json
 import time
 
 # About 8 snapshots of all sources while the Pi is away: 8 minutes.
 LIMIT_BYTES = 12288
+# The Pi's monitor heartbeats every 2 s, so a record made this long before the
+# Pi was first heard reached it live.
+HOLD_MS = 3000
 
 
 class Untimed:
@@ -47,25 +53,29 @@ class Untimed:
             self.bytes_ -= len(self.held_.pop(victim)[1])
             self.dropped += 1
 
-    def delivered(self, since_ms):
-        """Forgets the records held since since_ms: the Pi was listening for them."""
-        keep = [h for h in self.held_ if time.ticks_diff(h[0], since_ms) < 0]
-        self.held_ = keep
-        self.bytes_ = sum(len(h[1]) for h in keep)
+    def delivered(self, now_ms):
+        """The Pi has just been heard: forgets the records it was listening for."""
+        self._keep(lambda ticks: time.ticks_diff(now_ms, ticks) > HOLD_MS)
 
     def release(self, utc_now_ms, now_ms):
-        """The held records, oldest first, each given its utc_ms, and forgets them.
+        """The records held at least HOLD_MS, oldest first, each given its utc_ms.
 
-        utc_now_ms is the clock's UTC at now_ms; pass None while the time is unknown,
-        which releases nothing.
+        They're forgotten here. utc_now_ms is the clock's UTC at now_ms; pass None
+        while the time is unknown, which releases nothing.
         """
         if utc_now_ms is None or not self.held_:
             return []
         out = []
         for ticks, line, _ in self.held_:
+            if time.ticks_diff(now_ms, ticks) < HOLD_MS:
+                break
             message = json.loads(line)
             message["utc_ms"] = utc_now_ms + time.ticks_diff(ticks, now_ms)
             out.append(message)
-        self.held_ = []
-        self.bytes_ = 0
+        if out:
+            self._keep(lambda ticks: time.ticks_diff(now_ms, ticks) < HOLD_MS)
         return out
+
+    def _keep(self, wanted):
+        self.held_ = [h for h in self.held_ if wanted(h[0])]
+        self.bytes_ = sum(len(h[1]) for h in self.held_)

@@ -21,6 +21,11 @@ class GpsMonitor:
 
     Over I2C the module returns '\\n' bytes as padding when it has nothing to
     send; real sentences end with '\\r\\n'.
+
+    The module keeps sending while nobody reads, and buffers what it sends: after
+    the RP2040 resets, the first sentences read can be seconds old (10 s after a
+    deploy on 2026-11-10). So the clock is set only from the last RMC read before
+    the padding shows the buffer has been emptied, which makes that RMC current.
     """
 
     def __init__(self, bus, pi_link, clock, now_ms):
@@ -31,6 +36,7 @@ class GpsMonitor:
         self.next_poll_ms_ = now_ms
         self.configured_ = False
         self.fix_type_ = 0
+        self.unconfirmed_time_ = None  # (utc_ms, ticks) of the last RMC, until caught up
         self.gga_ = {}
         self.errors = 0
         self.fixes = 0
@@ -62,7 +68,10 @@ class GpsMonitor:
                     line = bytes(self.buf_[:-1])
                     self.buf_ = bytearray()
                     self._handle(line, now_ms)
-                # Otherwise it's padding.
+                elif self.unconfirmed_time_ is not None:
+                    # Padding: the module had nothing more, so the last RMC is current.
+                    self.clock_.set(*self.unconfirmed_time_)
+                    self.unconfirmed_time_ = None
             else:
                 self.buf_.append(b)
                 if len(self.buf_) > MAX_LINE:
@@ -87,7 +96,7 @@ class GpsMonitor:
 
     def _report(self, rmc, now_ms):
         if rmc['valid'] and 'date' in rmc and 'time' in rmc:
-            self.clock_.set(utc_ms(rmc['date'], rmc['time']), now_ms)
+            self.unconfirmed_time_ = (utc_ms(rmc['date'], rmc['time']), now_ms)
         fields = {"error": 0, "mode": self.fix_type_ if rmc['valid'] else 1,
                   "sats": self.gga_.get('sats', 0)}
         if rmc['valid'] and rmc['lat_e7'] is not None and rmc['lon_e7'] is not None:
