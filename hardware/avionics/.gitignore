@@ -1,0 +1,7 @@
+# 3D models, downloaded by tools/fetch_3d_models.sh
+lib/3d/*.step
+# KiCad working files
+_autosave-*
+*-backups/
+fp-info-cache
+*.lck
