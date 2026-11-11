@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Compares the KiCad schematic's netlist with connections.md.
+"""Compares a board's KiCad schematic netlist with its connections.md.
 
-Exits non-zero on any difference. Run it after every schematic edit.
+  python3 tools/check_netlist.py [--board DIR]
+
+DIR is the board's folder (default: this tool's board, hardware/avionics); its
+schematic is DIR/<folder name>.kicad_sch. Exits non-zero on any difference. Run
+it after every schematic edit.
 """
 import os
 import re
@@ -10,12 +14,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent.parent
+DEFAULT_BOARD = Path(__file__).resolve().parent.parent
 KICAD_CLI = os.environ.get("KICAD_APP", "/Applications/KiCad/KiCad.app") + "/Contents/MacOS/kicad-cli"
 
 
-def listed_nets():
-    text = (HERE / "connections.md").read_text()
+def listed_nets(board):
+    text = (board / "connections.md").read_text()
     section = text.split("## Nets")[1].split("Deliberately unconnected")[0]
     nets = {}
     for line in section.splitlines():
@@ -25,11 +29,11 @@ def listed_nets():
     return nets
 
 
-def schematic_nets():
+def schematic_nets(board):
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "net.xml"
         subprocess.run([KICAD_CLI, "sch", "export", "netlist", "--format", "kicadxml", "-o", str(out),
-                        str(HERE / "avionics.kicad_sch")], check=True, capture_output=True)
+                        str(board / f"{board.name}.kicad_sch")], check=True, capture_output=True)
         text = out.read_text()
     nets = {}
     for m in re.finditer(r'<net code="\d+" name="([^"]*)"[^>]*>(.*?)</net>', text, re.S):
@@ -69,8 +73,14 @@ def unreverse(listed, actual):
     return notes
 
 
+def board_arg(args):
+    return (Path(args[args.index("--board") + 1]).resolve() if "--board" in args
+            else DEFAULT_BOARD)
+
+
 def main():
-    listed, actual = listed_nets(), schematic_nets()
+    board = board_arg(sys.argv[1:])
+    listed, actual = listed_nets(board), schematic_nets(board)
     for line in unreverse(listed, actual):
         print(line)
     problems = []
@@ -96,8 +106,9 @@ def main():
             problems.append(f"net not in connections.md: {name} {real}")
     for line in problems:
         print(line)
-    print(f"{len(listed)} nets checked, {len(problems)} problems")
+    print(f"{board.name}: {len(listed)} nets checked, {len(problems)} problems")
     return 1 if problems else 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

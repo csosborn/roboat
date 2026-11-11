@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Writes a first-draft avionics.kicad_sch from connections.md.
+"""Writes a board's first-draft schematic from its connections.md.
 
+  python3 tools/generate_schematic.py [--board avionics|stern] [--overwrite]
+
+The board's files are in hardware/<board>/, and the schematic is <board>.kicad_sch.
 Every pin gets a net label rather than a drawn wire, so the draft is easy to
 rearrange by hand. Once the schematic has been tidied in KiCad, it is the source
 of truth for placement: don't run this again over it.
@@ -12,15 +15,18 @@ import sys
 import uuid
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent.parent
+HARDWARE = Path(__file__).resolve().parent.parent.parent
 KICAD_APP = Path(os.environ.get("KICAD_APP", "/Applications/KiCad/KiCad.app"))
 KICAD_SYMBOLS = KICAD_APP / "Contents/SharedSupport/symbols"
 NS = uuid.UUID("6f1d3c52-8a51-4f6a-9c1e-0a1b2c3d4e5f")
 ROOT = str(uuid.uuid5(NS, "root"))
-PROJECT = "avionics"
+
+# Set by configure() from BOARDS.
+HERE = PROJECT = None
+PARTS, FOOTPRINTS, NOT_FITTED, FLAGGED_NETS, HEADINGS = {}, {}, set(), {}, []
 
 # ref: (lib_id, value, x, y)
-PARTS = {
+AVIONICS_PARTS = {
     # Power
     "J1": ("Connector_Generic:Conn_01x02", "Load input", 30, 50),
     "F1": ("Device:Fuse", "3 A slow-blow", 62, 50),
@@ -54,27 +60,86 @@ PARTS = {
     "Q2": ("Transistor_FET:BSS138", "BSS138", 335, 60),
     "R10": ("Device:R", "100k", 365, 60),
     "J9": ("Connector_Generic:Conn_01x02", "Drive relay input", 340, 90),
+    # Stern link
     "R11": ("Device:R", "1k", 345, 120),
     "R12": ("Device:R", "1k", 345, 145),
-    "J6": ("Connector_Generic:Conn_01x03", "ESC", 385, 120),
-    "J8": ("Connector_Generic:Conn_01x03", "Rudder servo", 385, 145),
+    "R13": ("Device:R", "220R", 345, 170),
+    "R14": ("Device:R", "4.7k", 345, 195),
+    "C3": ("Device:C", "0.1u", 345, 220),
+    "J10": ("Connector_Generic:Conn_01x06", "Stern link", 390, 160),
     # Spares
-    "J7": ("Connector_Generic:Conn_01x09", "Spare GPIO", 300, 200),
+    "J7": ("Connector_Generic:Conn_01x07", "Spare GPIO", 300, 200),
 }
 
-# Nets that nothing on the board marks as driven, as far as ERC can tell.
-FLAGGED_NETS = {"VBUS_12V": (30, 275), "LOAD_FUSED": (70, 275)}
-
-HEADINGS = [
+AVIONICS_HEADINGS = [
     ("Power input and supplies", 20, 25),
     ("Pi power switch and power-good", 20, 75),
     ("Feather and sense dividers", 20, 130),
     ("Pi link and 40-pin header", 160, 130),
     ("Victron and I2C", 285, 75),
-    ("Drive", 325, 40),
+    ("Drive and stern link", 325, 40),
     ("Spare GPIO", 285, 165),
     ("Power flags (for ERC)", 20, 262),
 ]
+
+STERN_PARTS = {
+    "J1": ("Connector_Generic:Conn_01x06", "Stern link", 40, 70),
+    "R1": ("Device:R", "20k", 85, 95),
+    "R2": ("Device:R", "10k", 85, 117),
+    "J2": ("Connector_Generic:Conn_01x03", "ESC", 170, 50),
+    "C1": ("Device:C_Polarized", "470u 16V", 140, 62),
+    "J3": ("Connector_Generic:Conn_01x03", "Rudder servo", 170, 75),
+    "C2": ("Device:C", "0.1u", 120, 140),
+    "J4": ("Connector_Generic:Conn_01x03", "ESC enclosure probe", 170, 130),
+    "J5": ("Connector_Generic:Conn_01x03", "Water probe", 170, 152),
+    "U1": ("Sensor_Temperature:DS18B20", "DS18B20", 140, 175),
+    "H1": ("Mechanical:MountingHole", "M3", 40, 175),
+    "H2": ("Mechanical:MountingHole", "M3", 60, 175),
+}
+
+HEADER_3 = "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
+STERN_FOOTPRINTS = {
+    "J1": "Connector_JST:JST_PH_B6B-PH-K_1x06_P2.00mm_Vertical",
+    "J2": HEADER_3, "J3": HEADER_3, "J4": HEADER_3, "J5": HEADER_3,
+    "R1": "Resistor_SMD:R_0805_2012Metric", "R2": "Resistor_SMD:R_0805_2012Metric",
+    "C1": "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm",
+    "C2": "Capacitor_SMD:C_0805_2012Metric",
+    "U1": "Package_TO_SOT_THT:TO-92_Inline",
+    "H1": "MountingHole:MountingHole_3.2mm_M3", "H2": "MountingHole:MountingHole_3.2mm_M3",
+}
+
+STERN_HEADINGS = [
+    ("Stern link and BEC sense", 25, 40),
+    ("ESC and rudder servo", 125, 35),
+    ("1-Wire temperature", 105, 115),
+    ("Mounting", 25, 160),
+    ("Power flags (for ERC)", 25, 200),
+]
+
+# Per board: parts, footprints set here, parts not fitted, nets that nothing on
+# the board marks as driven as far as ERC can tell, headings, title, paper, and
+# whether the board has its own symbol and footprint libraries.
+BOARDS = {
+    "avionics": dict(parts=AVIONICS_PARTS,
+                     footprints={"A1": "Adafruit-Feather-RP2040:Adafruit-Feather-RP2040"},
+                     not_fitted=set(),
+                     flagged={"VBUS_12V": (30, 275), "LOAD_FUSED": (70, 275)},
+                     headings=AVIONICS_HEADINGS, title="Roboat avionics board", paper="A3",
+                     own_libraries=True),
+    "stern": dict(parts=STERN_PARTS, footprints=STERN_FOOTPRINTS, not_fitted={"U1"},
+                  flagged={"GND": (40, 215), "SENSOR_5V": (65, 215)},
+                  headings=STERN_HEADINGS, title="Roboat stern board", paper="A4",
+                  own_libraries=False),
+}
+
+
+def configure(board):
+    global HERE, PROJECT, PARTS, FOOTPRINTS, NOT_FITTED, FLAGGED_NETS, HEADINGS
+    config = BOARDS[board]
+    HERE, PROJECT = HARDWARE / board, board
+    PARTS, FOOTPRINTS, NOT_FITTED = config["parts"], config["footprints"], config["not_fitted"]
+    FLAGGED_NETS, HEADINGS = config["flagged"], config["headings"]
+    return config
 
 CUSTOM_SYMBOLS = {
     "Pololu_D24V7F5": ("U", 5.08, [("VIN", "power_in", "L"), ("GND", "power_in", "L"), ("VOUT", "power_out", "R")]),
@@ -221,7 +286,7 @@ def label(net, x, y, angle):
             f'(uuid "{uid("label", net, x, y)}"))')
 
 
-def instance(ref, lib_id, value, x, y, definition, pin_numbers, footprint=""):
+def instance(ref, lib_id, value, x, y, definition, pin_numbers, footprint="", dnp=False):
     offs = property_offsets(definition)
     def prop(key, val, hide):
         ox, oy, rot, _ = offs.get(key, (0, 0, 0, ""))
@@ -230,7 +295,7 @@ def instance(ref, lib_id, value, x, y, definition, pin_numbers, footprint=""):
                 f'(effects {font()}{h}))')
     pins = " ".join(f'(pin "{n}" (uuid "{uid(ref, "pin", n)}"))' for n in pin_numbers)
     return (f'(symbol (lib_id "{lib_id}") (at {x:.2f} {y:.2f} 0) (unit 1) (exclude_from_sim no) '
-            f'(in_bom yes) (on_board yes) (dnp no) (uuid "{uid(ref)}") '
+            f'(in_bom yes) (on_board yes) (dnp {"yes" if dnp else "no"}) (uuid "{uid(ref)}") '
             + prop("Reference", ref, False) + prop("Value", value, False)
             + prop("Footprint", footprint, True) + prop("Datasheet", "", True) + prop("Description", "", True)
             + " " + pins
@@ -273,6 +338,12 @@ def write_custom_library():
 
 
 def main():
+    args = sys.argv[1:]
+    board = args[args.index("--board") + 1] if "--board" in args else "avionics"
+    if board not in BOARDS:
+        sys.exit(f"unknown board {board!r}: choose from {sorted(BOARDS)}")
+    config = configure(board)
+    HERE.mkdir(exist_ok=True)
     target = HERE / f"{PROJECT}.kicad_sch"
     if target.exists() and "--overwrite" not in sys.argv:
         sys.exit(f"{target.name} exists and may have hand edits. Pass --overwrite to replace it.")
@@ -293,10 +364,8 @@ def main():
         x, y = snap(x), snap(y)
         definition = definitions[lib_id]
         pins = pins_of(definition)
-        footprint = ""
-        if ref == "A1":
-            footprint = "Adafruit-Feather-RP2040:Adafruit-Feather-RP2040"
-        items.append(instance(ref, lib_id, value, x, y, definition, [p[0] for p in pins], footprint))
+        items.append(instance(ref, lib_id, value, x, y, definition, [p[0] for p in pins],
+                              FOOTPRINTS.get(ref, ""), ref in NOT_FITTED))
         for number, name, px, py, angle in pins:
             net = endpoint_net.get(f"{ref}.{number}") or endpoint_net.get(f"{ref}.{name}")
             key = f"{ref}.{number}" if f"{ref}.{number}" in endpoint_net else f"{ref}.{name}"
@@ -334,12 +403,30 @@ def main():
 
     lib_symbols = "\n".join(definitions.values())
     sch = (f'(kicad_sch (version 20250114) (generator "eeschema") (generator_version "9.0") '
-           f'(uuid "{ROOT}") (paper "A3")\n'
-           '(title_block (title "Roboat avionics board") (comment 1 "First draft, generated from connections.md"))\n'
+           f'(uuid "{ROOT}") (paper "{config["paper"]}")\n'
+           f'(title_block (title "{config["title"]}") (comment 1 "First draft, generated from connections.md"))\n'
            f'(lib_symbols\n{lib_symbols}\n)\n'
            + "\n".join(items)
            + '\n(sheet_instances (path "/" (page "1")))\n(embedded_fonts no)\n)\n')
     (HERE / f"{PROJECT}.kicad_sch").write_text(sch)
+    if config["own_libraries"]:
+        write_libraries()
+    pro = HERE / f"{PROJECT}.kicad_pro"
+    if not pro.exists():
+        pro.write_text('{\n  "meta": {"filename": "%s.kicad_pro", "version": 3},\n'
+                       '  "schematic": {"legacy_lib_dir": "", "legacy_lib_list": []}\n}\n' % PROJECT)
+    # Save in the installed KiCad's native format.
+    subprocess.run([str(KICAD_APP / "Contents/MacOS/kicad-cli"), "sch", "upgrade", "--force",
+                    str(HERE / f"{PROJECT}.kicad_sch")], check=True, capture_output=True)
+    print(f"{board}: {len(PARTS)} parts, {len(nets)} nets")
+
+
+def write_libraries():
+    """The avionics board's own symbol library and library tables.
+
+    Note: this rewrites lib/roboat.kicad_sym with only CUSTOM_SYMBOLS, dropping
+    anything generate_footprints.py has added since (Pi_Header_2x20_NoPin3).
+    """
     write_custom_library()
     (HERE / "sym-lib-table").write_text(
         '(sym_lib_table\n  (version 7)\n'
@@ -350,13 +437,7 @@ def main():
         '(fp_lib_table\n  (version 7)\n'
         '  (lib (name "Adafruit-Feather-RP2040")(type "KiCad")(uri "${KIPRJMOD}/lib/Adafruit-Feather-RP2040.pretty")(options "")(descr ""))\n'
         ')\n')
-    pro = HERE / f"{PROJECT}.kicad_pro"
-    if not pro.exists():
-        pro.write_text('{\n  "meta": {"filename": "avionics.kicad_pro", "version": 3},\n  "schematic": {"legacy_lib_dir": "", "legacy_lib_list": []}\n}\n')
-    # Save in the installed KiCad's native format.
-    subprocess.run([str(KICAD_APP / "Contents/MacOS/kicad-cli"), "sch", "upgrade", "--force",
-                    str(HERE / f"{PROJECT}.kicad_sch")], check=True, capture_output=True)
-    print(f"{len(PARTS)} parts, {len(nets)} nets")
 
 
-main()
+if __name__ == "__main__":
+    main()
