@@ -48,6 +48,7 @@ AVIONICS_PARTS = {
     "C1": ("Device:C", "0.1u", 30, 190),
     "R4": ("Device:R", "10k", 30, 215),
     "R5": ("Device:R", "15k", 30, 237),
+    "R15": ("Device:R", "1k", 30, 259),
     # Pi
     "J2": ("Connector_Generic:Conn_02x20_Odd_Even", "Raspberry Pi header", 225, 190),
     "R8": ("Device:R", "1k", 170, 150),

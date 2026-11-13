@@ -46,6 +46,7 @@ October-November 2026, and Pololu's product pages.
 | R11, R12 | 1k | Soldered | Series resistors on the ESC and rudder signals, at the source end of the stern link. |
 | R13 | 220R, 1206 | Soldered | Feeds the stern board's temperature sensor from 5V_AON. Limits a short in the cable to about 23 mA (0.11 W, within a 1206's 0.25 W). |
 | R14 | 4.7k | Soldered | 1-Wire pull-up to 3.3 V. |
+| R15 | 1k | Soldered | Series resistor on the Victron's RX. Limits current from a 5 V pull-up inside the Victron into GPIO24's protection diode. |
 | C1 | 0.1 uF | Soldered | At A0, as close to the socket pin as possible. |
 | C3 | 0.1 uF | Soldered | At A1 (GPIO27), filtering BEC_SENSE after its trip down the cable. |
 | C2 | 33 uF, 50 V electrolytic | Soldered | At U1's VIN. Pololu warns of destructive LC spikes on U1, whose limit is 36 V. |
@@ -83,6 +84,8 @@ here. **New** is not on the boat yet.
 | PI_PG | `U2.PG` `R2.2` `R3.1` `A1.22` | Built | GPIO10. |
 | VE_TX | `J3.3` `R4.1` | Built | Idles at 5.1 V. Must never reach the Feather undivided. |
 | VE_TX_3V3 | `R4.2` `R5.1` `A1.21` | Built | GPIO9, UART1 RX. |
+| VE_RX_3V3 | `A1.9` `R15.1` | New | GPIO24, UART1 TX. Idles high; the firmware sends nothing yet. |
+| VE_RX | `R15.2` `J3.2` | New | To the Victron's RX, for its HEX protocol. |
 | PI_LINK_TX | `A1.15` `R8.1` | Changed | GPIO0, UART0 TX, 115200 baud. |
 | PI_LINK_TX_R | `R8.2` `J2.29` | Changed | Pi GPIO5, RXD3 (`/dev/ttyAMA3`). |
 | PI_LINK_RX | `A1.14` `R9.1` | Changed | GPIO1, UART0 RX. |
@@ -111,9 +114,7 @@ Deliberately unconnected:
 | Pin | Why |
 |---|---|
 | `A1.1` RESET | The Feather's own button is enough. A reset counts as a cold start, so it holds the Pi off. |
-| `A1.9` D24/GPIO24 | The firmware parks UART1's unused TX here. Connecting it would need a check of the Victron's RX levels. |
 | `A1.27` ENABLE | Pulling it low would stop the Feather's 3.3 V regulator. |
-| `J3.2` VE.Direct RX | The firmware only listens. |
 | `J3.4` VE.Direct +5 V | The Victron's supply isn't needed. |
 | `A2.ALERT`, `A2.VBUS` | Not used by the firmware. Keep the breakout's VBUS jumper as it is now. |
 | `J2` pins 27 and 28 | Reserved for a HAT ID EEPROM, which this board doesn't have. |
@@ -238,7 +239,7 @@ Each of these comes from a fault on the prototype.
 - **C1:** right at `A1.5`. On the prototype it sits about six inches of jumper
   away.
 - **Victron divider:** R4 and R5 next to the Feather, so only the divided signal
-  crosses the board near it.
+  crosses the board near it. R15 beside them.
 - **U2's EN:** Q1 next to U2.
 - **J10:** at the board edge nearest the stern, with R11, R12, R13 and C3 close to
   it.
@@ -289,3 +290,10 @@ Still open:
    nothing measures it yet. SPARE_A1 went to BEC_SENSE, but DS18B20s share a
    1-Wire bus, so a second probe on ONEWIRE could measure the battery: it would
    need only a 3-pin header here (SENSOR_5V, ONEWIRE, GND).
+8. **Victron RX levels:** the Victron's TX idles at 5.1 V, so it's a 5 V device,
+   and Victron doesn't promise that its RX accepts 3.3 V logic, though many 3.3 V
+   boards drive it directly. Check that the MPPT answers a HEX ping. If it
+   doesn't, a level shifter is the fix; R15 keeps the attempt harmless.
+   Writing settings can restart the MPPT and drop the load output (it did during
+   the 2026-10-11 low-battery test), so the firmware should read freely but write
+   rarely, and never in a way that can leave the load output off.
