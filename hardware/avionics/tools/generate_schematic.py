@@ -98,10 +98,11 @@ STERN_PARTS = {
     "H2": ("Mechanical:MountingHole", "M3", 60, 175),
 }
 
-HEADER_3 = "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
+XH_3 = "Connector_JST:JST_XH_S3B-XH-A_1x03_P2.50mm_Horizontal"
+PH_3 = "Connector_JST:JST_PH_S3B-PH-K_1x03_P2.00mm_Horizontal"
 STERN_FOOTPRINTS = {
-    "J1": "Connector_JST:JST_PH_B6B-PH-K_1x06_P2.00mm_Vertical",
-    "J2": HEADER_3, "J3": HEADER_3, "J4": HEADER_3, "J5": HEADER_3,
+    "J1": "Connector_JST:JST_PH_S6B-PH-K_1x06_P2.00mm_Horizontal",
+    "J2": XH_3, "J3": XH_3, "J4": PH_3, "J5": PH_3,
     "R1": "Resistor_SMD:R_0805_2012Metric", "R2": "Resistor_SMD:R_0805_2012Metric",
     "C1": "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm",
     "C2": "Capacitor_SMD:C_0805_2012Metric",
@@ -127,7 +128,7 @@ BOARDS = {
                      flagged={"VBUS_12V": (30, 275), "LOAD_FUSED": (70, 275)},
                      headings=AVIONICS_HEADINGS, title="Roboat avionics board", paper="A3",
                      own_libraries=True),
-    "stern": dict(parts=STERN_PARTS, footprints=STERN_FOOTPRINTS, not_fitted={"U1"},
+    "stern": dict(parts=STERN_PARTS, footprints=STERN_FOOTPRINTS, not_fitted=set(),
                   flagged={"GND": (40, 215), "SENSOR_5V": (65, 215)},
                   headings=STERN_HEADINGS, title="Roboat stern board", paper="A4",
                   own_libraries=False),

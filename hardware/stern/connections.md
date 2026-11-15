@@ -22,12 +22,12 @@ here and the avionics board's J10 carry the same nets on the same pins.
 
 | Ref | Part | Mounting | Notes |
 |---|---|---|---|
-| J1 | Stern link, JST-PH 6 pins | B6B-PH-K (vertical) or S6B-PH-K (side entry) | Same pinout as the avionics board's J10, pin for pin. |
-| J2 | ESC servo lead, 3 pins | 0.1 in | 1 = GND, 2 = BEC 5 V, 3 = signal. Brings the ESC's BEC output onto the board. |
-| J3 | Rudder servo, 3 pins | 0.1 in | Same pinout as J2. Powered only from the BEC. |
-| J4 | Temperature probe, 3 pins | Screw terminal or 0.1 in | 1 = GND, 2 = DQ, 3 = VDD. For a waterproof DS18B20 probe in the ESC's enclosure. |
-| J5 | Water temperature probe, 3 pins | Screw terminal or 0.1 in | Same pinout as J4. For a waterproof DS18B20 probe against the hull or through it. |
-| U1 | DS18B20, TO-92 | Soldered, optional | Not fitted unless wanted: measures the board instead of the enclosure. Shares the bus with the probes. |
+| J1 | Stern link, JST-PH 6 pins | S6B-PH-K (side entry) | Same pinout as the avionics board's J10, pin for pin. |
+| J2 | ESC servo lead, 3 pins | JST-XH, S3B-XH-A (side entry) | 1 = GND, 2 = BEC 5 V, 3 = signal. Brings the ESC's BEC output onto the board. |
+| J3 | Rudder servo, 3 pins | JST-XH, S3B-XH-A (side entry) | Same pinout as J2. Powered only from the BEC. |
+| J4 | Temperature probe, 3 pins | JST-PH, S3B-PH-K (side entry) | 1 = GND, 2 = DQ, 3 = VDD. For a waterproof DS18B20 probe in the ESC's enclosure. |
+| J5 | Water temperature probe, 3 pins | JST-PH, S3B-PH-K (side entry) | Same pinout as J4. For a waterproof DS18B20 probe against the hull or through it. |
+| U1 | DS18B20, TO-92 | Soldered | Measures the board itself. Shares the bus with the probes. The datasheet's TO-92 drawing is a bottom view. |
 | R1, R2 | 20k, 10k | Soldered | BEC sense divider, by 3: 1.67 V for 5 V, 2.47 V even for a 7.4 V BEC setting. |
 | C1 | 470 uF, 16 V electrolytic | Soldered | Bulk capacitance at J3, to steady the BEC when the servo stalls or starts. 16 V covers BECs set to 7.4 V. |
 | C2 | 0.1 uF | Soldered | Sensor supply decoupling, between J4 and J5. |
@@ -55,11 +55,18 @@ Deliberately unconnected: nothing.
 - **R1 and R2:** near J1, so only the divided signal runs to the cable.
 - **J4 and J5:** at a board edge, for the probes' leads.
 
+## Settled
+
+- **Servo and ESC connectors (2026-11-14):** JST-XH for J2 and J3, with the ESC
+  and servo leads recrimped onto XH housings. The housings are polarized, so a
+  lead can't go in reversed, and XH's 3 A rating covers a stalled servo, where
+  PH's 2 A is marginal. Neither XH nor PH latches.
+- **Probe connectors (2026-11-14):** JST-PH for J4 and J5, matching J1 and the
+  avionics board.
+
 ## Open questions
 
 1. **Cable length and routing:** the run from the avionics board to the stern
    decides whether R14 on the avionics board should drop to 2.2k.
 2. **Enclosure:** whether this board sits in the ESC's own enclosure, which would
    make U1 measure the right thing and J4 unnecessary.
-3. **Servo connector:** 0.1 in headers match today's leads. A locking connector
-   would hold better against vibration.
