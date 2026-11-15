@@ -9,9 +9,11 @@ Adds, as one group:
   - a cutout in the board above the CPU;
   - a keepout (no tracks, vias, pads or pours, on either layer) above the
     Pi's WiFi antenna.
-Moving the group in KiCad moves all of these together. The board's own outline
-(Edge.Cuts) is left alone: draw it to suit, keeping clear of the Pi's USB and
-Ethernet ports, which stand taller than the header stack.
+Moving the group in KiCad moves all of these together. The group is locked, so
+KiCad asks before moving or deleting it: unlock it (right-click, Unlock) to move
+the Pi, and lock it again afterwards. The board's own outline (Edge.Cuts) is
+left alone and kept out of the group: draw it to suit, keeping clear of the Pi's
+USB and Ethernet ports, which stand taller than the header stack.
 
 Run it with KiCad's own Python while the board is closed in KiCad:
   /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 \
@@ -105,6 +107,9 @@ def main(path, ox=100.0, oy=130.0, antenna_only=False):
                      "or start again from a board without it.")
         group = pcbnew.PCB_GROUP(board)
         group.SetName(GROUP)
+        # Locked, because clicking any member selects the whole group: an
+        # unlocked group is one Delete away from losing J2, H1-H4 and the cutout.
+        group.SetLocked(True)
         board.Add(group)
 
     def at(x, y):  # Pi coordinates to board coordinates
@@ -217,16 +222,17 @@ def main(path, ox=100.0, oy=130.0, antenna_only=False):
     j2 = board.FindFootprintByReference("J2")
     if not j2.IsFlipped():
         j2.Flip(j2.GetPosition(), pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
-    want = {"1": at(*PIN1), "2": at(PIN1[0], PIN1[1] + 2.54), "3": at(PIN1[0] + 2.54, PIN1[1])}
+    # Pin 5, not 3: J2's footprint has no pad 3 (see connections.md).
+    want = {"1": at(*PIN1), "2": at(PIN1[0], PIN1[1] + 2.54), "5": at(PIN1[0] + 5.08, PIN1[1])}
     for deg in (0, 90, 180, 270):
         j2.SetOrientationDegrees(deg)
         p = {n: j2.FindPadByNumber(n).GetPosition() for n in want}
-        if p["2"] - p["1"] == want["2"] - want["1"] and p["3"] - p["1"] == want["3"] - want["1"]:
+        if p["2"] - p["1"] == want["2"] - want["1"] and p["5"] - p["1"] == want["5"] - want["1"]:
             break
     else:
         sys.exit("No rotation of J2 matches the Pi's header")
     j2.Move(want["1"] - j2.FindPadByNumber("1").GetPosition())
-    for n in ("1", "2", "3", "40"):
+    for n in ("1", "2", "5", "40"):
         q = j2.FindPadByNumber(n).GetPosition()
         print(f"J2 pin {n} at ({pcbnew.ToMM(q.x):.2f}, {pcbnew.ToMM(q.y):.2f})")
     add(j2)
