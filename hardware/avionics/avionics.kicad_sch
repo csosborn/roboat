@@ -5927,16 +5927,6 @@
 	)
 	(wire
 		(pts
-			(xy 246.38 218.44) (xy 256.54 218.44)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "afb3f7bc-dc29-45a2-8b0a-e2ba46908483")
-	)
-	(wire
-		(pts
 			(xy 106.68 186.69) (xy 109.22 186.69)
 		)
 		(stroke
@@ -6575,16 +6565,6 @@
 		)
 		(uuid "26c8726f-5be8-5309-a992-5ab5632d49fc")
 	)
-	(label "ONEWIRE"
-		(at 255.27 218.44 180)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right bottom)
-		)
-		(uuid "272c3b9b-d54f-44fe-8473-3e872df935be")
-	)
 	(label "SPARE_SCK"
 		(at 345.44 209.55 180)
 		(effects
@@ -6695,16 +6675,6 @@
 		)
 		(uuid "48f49747-86b5-500a-adf6-d1f7d8c8bf7b")
 	)
-	(label "GND"
-		(at 255.27 226.06 180)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right bottom)
-		)
-		(uuid "4f6a97a2-6dac-44de-8bc6-c6b0c4e2e5c8")
-	)
 	(label "5V_AON"
 		(at 152.4 77.47 0)
 		(effects
@@ -6814,6 +6784,16 @@
 			(justify right bottom)
 		)
 		(uuid "786eb251-1cf3-5a44-a481-60dc8970caf2")
+	)
+	(label "ONEWIRE"
+		(at 256.54 218.44 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "7b8780f5-9093-455a-adbb-ebb1646139e5")
 	)
 	(label "SPARE_MOSI"
 		(at 345.44 212.09 180)
