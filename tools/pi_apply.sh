@@ -6,7 +6,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PI_LINK_PORT=/dev/ttyAMA3
+# The monitor's port, overridable in monitor.env as in src/pi/monitor/main.py.
+PI_LINK_PORT=$(sed -n 's/^PI_LINK_PORT=//p' src/pi/monitor/monitor.env 2>/dev/null | tail -n 1)
+PI_LINK_PORT=${PI_LINK_PORT:-/dev/ttyAMA4}
 
 old=$1
 new=$2

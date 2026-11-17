@@ -17,7 +17,10 @@ token = os.environ.get("INFLUX_TOKEN")
 if not token:
     sys.exit("INFLUX_TOKEN is not set; see src/pi/monitor/monitor.env.example")
 
-PI_LINK_PORT = "/dev/ttyAMA3"
+# The Pi's UART4, on header pins 24 and 21 (see src/pi/TIG/setup.md). The v0.1
+# avionics board wires the link to UART3 instead: set PI_LINK_PORT=/dev/ttyAMA3
+# in monitor.env when one is fitted.
+PI_LINK_PORT = os.environ.get("PI_LINK_PORT", "/dev/ttyAMA4")
 CHRONY_SOCK = os.environ.get("CHRONY_SOCK", "/run/chrony.rp2040.sock")
 HEARTBEAT_INTERVAL_S = 2.0
 
