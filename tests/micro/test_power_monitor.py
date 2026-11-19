@@ -59,11 +59,15 @@ class FakeLink:
 
 
 class FakeBattery:
-    capacity_est_ = cap_est_min_ = cap_est_max_ = 0
-    nom_ah_ = 20
+    def __init__(self):
+        self.updates = []
 
-    def update(self, now, v, i):
-        return False
+    def update(self, now, v, i, panel_w, logic_a, charger_state):
+        self.updates.append((now, v, i, panel_w, logic_a, charger_state))
+        return True
+
+    def report(self):
+        return {"soc": 0.5}
 
 
 def make(ina=None):
@@ -231,3 +235,43 @@ def test_unknown_load_state_does_not_block_main_power():
     mon.step(2)
     assert power_events(events) == [MAIN_POWER_UP]
     assert "load_on" not in mon.pi_link_.sent[-1][1]
+
+
+def test_battery_model_gets_the_ina_current_only_while_fresh_and_live():
+    mon, mppt, events, _ = make()
+    battery = mon.battery_
+    mppt.frame(13.2)
+    mon.step(1)
+    mon.step(1000)            # INA sample: 0.4 A
+    mppt.frame(13.2)
+    mon.step(1001)
+    assert battery.updates[-1][4] == 0.4
+    mon.last_ina_ms_ = 10 ** 9  # no more INA samples
+    mppt.frame(13.2)
+    mon.step(1001 + pm.INA_FRESH_MS + 1)
+    assert battery.updates[-1][4] is None
+
+
+def test_battery_reports_are_rate_limited():
+    mon, mppt, events, _ = make()
+    mppt.frame(13.2)
+    mon.step(1)
+    for t in range(2, 20000, 1000):
+        mppt.frame(13.2)
+        mon.step(t)
+    sent = [d for src, d in mon.pi_link_.sent if src == "battery"]
+    assert len(sent) == 2
+
+
+def test_battery_message_keeps_its_source():
+    import soc_model
+    from pi_link import PiLink
+
+    class Uart:
+        def write(self, s):
+            pass
+
+    link = PiLink(Uart(), None)
+    m = soc_model.SocModel(store=None)
+    m.update(0, 13.24, -0.28, 0)
+    assert link.send_update("battery", m.report())["src"] == "battery"

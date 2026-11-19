@@ -27,3 +27,11 @@ def test_status_drops_the_envelope():
 def test_unknown_source_ignored():
     assert to_point({"src": "nope"}) is None
     assert to_point({}) is None
+
+
+def test_battery_estimate_fields():
+    p = to_point({"src": "battery", "soc": 0.5, "cap": 9.1, "cap_min": 8.6, "cap_max": 9.6,
+                  "sd": 0.5, "full_ah": 18.3, "basis": "knee"})
+    assert p["measurement"] == "battery"
+    assert p["fields"]["cap_ah"] == 9.1 and p["fields"]["soc_sd_ah"] == 0.5
+    assert p["fields"]["full_ah"] == 18.3 and p["fields"]["basis"] == "knee"
