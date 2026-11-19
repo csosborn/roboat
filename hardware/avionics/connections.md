@@ -32,9 +32,9 @@ October-November 2026, and Pololu's product pages.
 | Ref | Part | Mounting | Notes |
 |---|---|---|---|
 | A1 | Adafruit Feather RP2040 | Socketed | Pin numbers are from the `Adafruit-Feather-RP2040` KiCad symbol (github.com/bluepylons/Adafruit-RP2040-KiCAD, MIT). Its LiPo stays on its own JST connector. |
-| A2 | Adafruit INA260 breakout | Socketed | 0x40. Footprint `roboat:Adafruit_INA260_Breakout`, from Adafruit's board file. |
 | U1 | Pololu D24V7F5 | Socketed | Always-on 5 V, 600 mA. Footprint `roboat:Pololu_D24V7F5`: VIN, GND, VOUT at 0.1 in. No reverse-voltage protection. |
 | U2 | Pololu D36V28F5 | Socketed | Pi's 5 V. Footprint `roboat:Pololu_D36V28F5`: EN, VIN, GND, GND, VOUT in a row, PG 0.1 in above EN. Two M2 holes. |
+| U3 | TI INA260AIPWR, TSSOP-16 | Soldered | Load-input current and voltage monitor, with its 2 mOhm shunt built in. Replaces v0.1's Adafruit breakout (A2) with the same circuit, minus the terminal block. A0 and A1 to GND give 0x40, as before. Footprint `Package_SO:TSSOP-16_4.4x5mm_P0.65mm`, no exposed pad. |
 | Q1 | BSS138 | Soldered | Replaces the level shifter: it's the same circuit as the one channel in use. |
 | Q2 | BSS138 | Soldered | Switches the drive relay's input from 5 V. |
 | R1 | 10k | Soldered | Holds GPIO11 high during an RP2040 reset. Don't raise this value (see below). |
@@ -47,15 +47,18 @@ October-November 2026, and Pololu's product pages.
 | R13 | 220R, 1206 | Soldered | Feeds the stern board's temperature sensor from 5V_AON. Limits a short in the cable to about 23 mA (0.11 W, within a 1206's 0.25 W). |
 | R14 | 4.7k | Soldered | 1-Wire pull-up to 3.3 V. |
 | R15 | 1k | Soldered | Series resistor on the Victron's RX. Limits current from a 5 V pull-up inside the Victron into GPIO24's protection diode. |
+| R16, R17 | 10k | Soldered | I2C1 pull-ups to 3.3 V, which the INA260 breakout used to provide. The GPS and IMU breakouts on J4 add their own 10k each. |
+| R18, R19 | 10k | Soldered | I2C0 pull-ups to 3.3 V, so J5's bus works with a breakout that has none. |
 | C1 | 0.1 uF | Soldered | At A0, as close to the socket pin as possible. |
 | C3 | 0.1 uF | Soldered | At A1 (GPIO27), filtering BEC_SENSE after its trip down the cable. |
+| C4 | 0.1 uF | Soldered | U3's supply decoupling, at `U3.10`. |
 | C2 | 33 uF, 50 V electrolytic | Soldered | At U1's VIN. Pololu warns of destructive LC spikes on U1, whose limit is 36 V. |
 | D1 | SS12 Schottky, 20 V 1 A, SMA | Soldered | See open question 2. About 0.3-0.4 V drop at the RP2040 side's 0.1-0.3 A. |
 | D2 | SMBJ18A TVS | Soldered | Clamps spikes from the motor sharing the load output, to about 29 V against U1's 36 V limit. Reverse polarity makes it conduct and blow F1. |
-| F1 | Bel Fuse 0685T3000-01: 3 A slow-blow, 63 V, 50 A breaking, 1206 | Soldered | Covers the load input. Sized for the logic and Pi only, about 1 A. The ESC's feed never crosses the board. 50 A breaking is enough because the Victron's load output limits its own short-circuit current. Not field-replaceable: a blown F1 means rework. |
+| F1 | 3 A slow-blow (T3A) 5x20 mm cartridge fuse, e.g. Littelfuse 0218003.MXP | Two Keystone 3517 clips, through-hole | Covers the load input. Sized for the logic and Pi only, about 1 A. The ESC's feed never crosses the board. A low-breaking glass fuse is enough because the Victron's load output limits its own short-circuit current. Field-replaceable; spares are common. Footprint `Fuse:Fuseholder_Clip-5x20mm_Keystone_3517_Inline_P23.11x6.76mm_D1.70mm_Horizontal`. |
 | J1 | Load input, 2 pins | Screw terminal or similar | From the Victron's load output, on its own wires. The ESC's relay taps the load output separately. 1 = +, 2 = GND. |
-| J2 | Raspberry Pi 40-pin header, without pin 3 | 2x20 female, underside | The board stacks on the Pi. Numbers are the Pi's physical pins. Mirrored in layout: see below. Pin 3's contact is pushed out of the socket: see below. Symbol `roboat:Pi_Header_2x20_NoPin3`, footprint `roboat:PinSocket_2x20_P2.54mm_Vertical_NoPin3`. |
-| J3 | VE.Direct, 4 pins | To match the Victron cable | 1 = GND, 2 = RX, 3 = TX, 4 = +5 V. Check against the real connector. |
+| J2 | Raspberry Pi header, pins 1-28, without pin 3 | 2x14 female, underside | The board stacks on the Pi's 40-pin header, covering pins 1-28 only, so the area over pins 29-40 is free for layout. Numbers are the Pi's physical pins. Mirrored in layout: see below. Pin 3's contact is pushed out of the socket: see below. Symbol `roboat:Pi_Header_2x14_NoPin3`, footprint `roboat:PinSocket_2x14_P2.54mm_Vertical_NoPin3`. v0.1 used a 2x20 socket. |
+| J3 | VE.Direct, JST-PH 3 pins | S3B-PH-K (side entry) | 1 = GND, 2 = RX, 3 = TX. The cable leaves out the Victron's +5 V, which isn't needed. v0.1 had 4 pins, with pin 4 = +5 V unconnected. |
 | J4 | STEMMA QT (JST SH 4) | SMD | I2C1, for the GPS and IMU. 1 = GND, 2 = 3.3 V, 3 = SDA, 4 = SCL. |
 | J5 | STEMMA QT (JST SH 4) | SMD | I2C0, so the IMU can leave the shared bus without a new board. Same pinout as J4. |
 | J7 | Spare GPIO header, 7 pins | 0.1 in | 1 = 3.3 V, 2 = GND, 3-7 = spare pins. Was 9 pins: GPIO25 and GPIO27 went to the stern link. |
@@ -70,13 +73,13 @@ here. **New** is not on the boat yet.
 | Net | Connects | Status | Notes |
 |---|---|---|---|
 | LOAD_IN | `J1.1` `F1.1` | New | Fuse added. |
-| LOAD_FUSED | `F1.2` `A2.VIN+` `D2.K` | Changed | |
-| VBUS_12V | `A2.VIN-` `U1.VIN` `U2.VIN` `C2.1` | Built | 12.0-14.2 V in normal use. C2 added. |
-| GND | `J1.2` `U1.GND` `U2.GND1` `U2.GND2` `A1.4` `A2.GND` `C1.2` `C2.2` `D2.A` `Q2.S` `R10.2` `R3.2` `R5.2` `R7.2` `J2.6` `J2.9` `J2.14` `J2.20` `J2.25` `J2.30` `J2.34` `J2.39` `J3.1` `J4.1` `J5.1` `J7.2` `J10.5` `C3.2` | Changed | One plane. The prototype lost 0.29 V here at 1.5 A. |
+| LOAD_FUSED | `F1.2` `U3.1` `U3.2` `U3.3` `D2.K` | Changed | U3's three IN+ pins. |
+| VBUS_12V | `U3.14` `U3.15` `U3.16` `U3.12` `U1.VIN` `U2.VIN` `C2.1` | Built | 12.0-14.2 V in normal use. C2 added. U3's three IN- pins, and its VBUS pin, so it measures the voltage after the shunt as the breakout's default VBUS jumper does. |
+| GND | `J1.2` `U1.GND` `U2.GND1` `U2.GND2` `A1.4` `U3.6` `U3.11` `U3.4` `U3.5` `C4.2` `C1.2` `C2.2` `D2.A` `Q2.S` `R10.2` `R3.2` `R5.2` `R7.2` `J2.6` `J2.9` `J2.14` `J2.20` `J2.25` `J3.1` `J4.1` `J5.1` `J7.2` `J10.5` `C3.2` | Changed | One plane. The prototype lost 0.29 V here at 1.5 A. `U3.4` (A1) and `U3.5` (A0) set its address to 0x40. |
 | 5V_AON | `U1.VOUT` `D1.A` `J9.1` `R13.1` | Changed | Also feeds the drive relay's input, about 15 mA at most, and the stern board's temperature sensor through R13. |
 | FEATHER_USB | `D1.K` `A1.26` | Changed | Feather's USB pin. Was fed directly. |
 | 5V_PI | `U2.VOUT` `J2.2` `J2.4` `R2.1` | Changed | Target: at least 4.9 V at the Pi at 1.5 A. |
-| 3V3 | `A1.2` `A1.3` `R1.1` `Q1.G` `A2.VCC` `J4.2` `J5.2` `J7.1` `R14.1` | Built | From the Feather's regulator. Never sent down the stern link. |
+| 3V3 | `A1.2` `A1.3` `R1.1` `Q1.G` `U3.10` `C4.1` `R16.1` `R17.1` `R18.1` `R19.1` `J4.2` `J5.2` `J7.1` `R14.1` | Built | From the Feather's regulator. Never sent down the stern link. |
 | LIPO_BAT | `A1.28` `R6.1` | Built | |
 | LIPO_SENSE | `R6.2` `R7.1` `C1.1` `A1.5` | Built | GPIO26. |
 | PI_EN_CTRL | `A1.23` `R1.2` `Q1.S` | Changed | GPIO11. High or floating = Pi on; low = Pi off. Same as today. |
@@ -87,13 +90,13 @@ here. **New** is not on the boat yet.
 | VE_RX_3V3 | `A1.9` `R15.1` | New | GPIO24, UART1 TX. Idles high; the firmware sends nothing yet. |
 | VE_RX | `R15.2` `J3.2` | New | To the Victron's RX, for its HEX protocol. |
 | PI_LINK_TX | `A1.15` `R8.1` | Changed | GPIO0, UART0 TX, 115200 baud. |
-| PI_LINK_TX_R | `R8.2` `J2.29` | Changed | Pi GPIO5, RXD3 (`/dev/ttyAMA3`). |
+| PI_LINK_TX_R | `R8.2` `J2.21` | Changed | Pi GPIO9, RXD4 (`/dev/ttyAMA4`, see `src/pi/TIG/setup.md`). v0.1 used UART3, on pin 29. Not UART0 (pins 8 and 10): roboat1's GPIO15 input is damaged. |
 | PI_LINK_RX | `A1.14` `R9.1` | Changed | GPIO1, UART0 RX. |
-| PI_LINK_RX_R | `R9.2` `J2.7` | Changed | Pi GPIO4, TXD3. |
-| I2C1_SDA | `A1.17` `A2.SDA` `J4.3` | Built | GPIO2, 400 kHz. GPS 0x10, INA260 0x40, IMU 0x4A. |
-| I2C1_SCL | `A1.18` `A2.SCL` `J4.4` | Built | GPIO3. |
-| I2C0_SDA | `A1.24` `J5.3` | New | GPIO12. |
-| I2C0_SCL | `A1.25` `J5.4` | New | GPIO13. |
+| PI_LINK_RX_R | `R9.2` `J2.24` | Changed | Pi GPIO8, TXD4. v0.1 used pin 7. Pins 21 and 24 are the Pi's SPI0, which stays off. |
+| I2C1_SDA | `A1.17` `U3.8` `R16.2` `J4.3` | Built | GPIO2, 400 kHz. GPS 0x10, INA260 0x40, IMU 0x4A. |
+| I2C1_SCL | `A1.18` `U3.9` `R17.2` `J4.4` | Built | GPIO3. |
+| I2C0_SDA | `A1.24` `R18.2` `J5.3` | New | GPIO12. |
+| I2C0_SCL | `A1.25` `R19.2` `J5.4` | New | GPIO13. |
 | DRIVE_PWR_EN | `A1.19` `Q2.G` `R10.1` | Changed | GPIO7, high = ESC on. Same polarity as today. |
 | DRIVE_RELAY_N | `Q2.D` `J9.2` | New | |
 | DRIVE_PWM | `A1.20` `R11.1` | Changed | GPIO8, 50 Hz; 1.5 ms is neutral. |
@@ -115,10 +118,10 @@ Deliberately unconnected:
 |---|---|
 | `A1.1` RESET | The Feather's own button is enough. A reset counts as a cold start, so it holds the Pi off. |
 | `A1.27` ENABLE | Pulling it low would stop the Feather's 3.3 V regulator. |
-| `J3.4` VE.Direct +5 V | The Victron's supply isn't needed. |
-| `A2.ALERT`, `A2.VBUS` | Not used by the firmware. Keep the breakout's VBUS jumper as it is now. |
+| `U3.7` ALERT | Not used by the firmware. |
+| `U3.13` NC | Not connected inside the chip. |
 | `J2` pins 27 and 28 | Reserved for a HAT ID EEPROM, which this board doesn't have. |
-| All other `J2` pins | The Pi's remaining GPIOs aren't used. |
+| All other `J2` pins | The Pi's remaining GPIOs aren't used. Pins 29-40 have no socket at all. |
 
 ## Pi power switch
 
@@ -222,9 +225,22 @@ group that moves together.
 - **Support:** the header can't carry the board on a boat. Use standoffs at the
   Pi's four mounting holes (H1-H4, M2.5), and add holes at the far corners of any
   overhang, fixed to the same base as the Pi.
+- **GPS and IMU on standoffs:** H5-H9, unplated 2.5 mm holes for M2 hardware. The
+  GPS sits on H5 and H6, along the edge beyond the Pi's header. The IMU sits on
+  H7, H8 and H9, three of its four corners, so it can't rock. The breakouts mount
+  above the board on nylon standoffs, which keep steel away from the IMU's
+  magnetometer, and connect to J4/J5 by STEMMA QT cables. The GPS needs a clear
+  view of the sky.
+- **IMU axes:** the silkscreen beside the IMU marks +X and +Y, with Z out of the
+  board's top face (a right-handed set). The firmware's mapping from the IMU's
+  frame to the boat's should be checked against these once the board is fitted.
 - **J2 is on the underside:** a socket on the back of the board mirrors the pin
   order compared with the Pi's top view. Check it on a 1:1 print against a real
   Pi before ordering.
+- **Pins 29-40 stand bare:** J2 covers only pins 1-28. The Pi's other twelve pins
+  stand uncovered under the board, their tips about 2.5 mm below its underside
+  with an 8.5 mm socket. They carry live GPIOs and ground, so keep the underside
+  over them free of exposed copper and parts.
 - **No fuse on the Pi side:** power through the 40-pin header bypasses the Pi's own
   input protection, so U2 and F1 are all that's guarding it.
 
@@ -235,7 +251,7 @@ Each of these comes from a fault on the prototype.
 - **Ground:** a solid plane, with nothing routed through it between J1, U2 and
   J2.
 - **Pi 5 V:** a short, wide pour from U2 to J2. Allow under 20 milliohms each
-  way, about 30 mV at 1.5 A. Tie in all eight of J2's ground pins.
+  way, about 30 mV at 1.5 A. Tie in all five of J2's ground pins (6, 9, 14, 20, 25).
 - **C1:** right at `A1.5`. On the prototype it sits about six inches of jumper
   away.
 - **Victron divider:** R4 and R5 next to the Feather, so only the divided signal
@@ -244,6 +260,8 @@ Each of these comes from a fault on the prototype.
 - **J10:** at the board edge nearest the stern, with R11, R12, R13 and C3 close to
   it.
 - **D2 and C2:** close to J1 and U1, with short connections to the plane.
+- **U3:** pours to its IN+ (pins 1-3) and IN- (pins 14-16) groups; the shunt is
+  inside the chip, so no Kelvin routing is needed. C4 right at pin 10.
 - **Test points:** VBUS_12V, 5V_AON, 5V_PI, 3V3, PI_EN, PI_PG and GND, each
   reachable with the Pi and modules fitted.
 
@@ -252,7 +270,8 @@ Each of these comes from a fault on the prototype.
 Settled on 2026-11-06:
 
 - The board stacks on the 40-pin header, and may overhang the Pi.
-- The INA260 is socketed.
+- The INA260 is socketed. Changed for v0.2 (2026-11-16): the chip goes on the
+  board as U3, because the breakout takes too much room.
 - GPIO7 switches the ESC's relay.
 - The ESC taps the load output directly, so motor current never touches the board,
   and the board's fuse doesn't cover it. The INA260 measures only the Pi and logic;
