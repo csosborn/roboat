@@ -43,6 +43,8 @@ def _battery(m):
         "cap_ah_max": m["cap_max"],
         "cap_ah_min": m["cap_min"],
         "soc": float(m["soc"]),
+        **{k: v for k, v in (("soc_sd_ah", m.get("sd")), ("full_ah", m.get("full_ah")),
+                             ("basis", m.get("basis"))) if v is not None},
     }
 
 

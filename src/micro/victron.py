@@ -13,6 +13,7 @@ class VictronMPPT:
         self.battery_amps = 0
         self.load_amps = 0
         self.tracker_mode = 0
+        self.charge_state = None  # VE.Direct CS: 3 bulk, 4 absorption, 5 float
         self.yield_total_kwh = 0
         self.error = 0
         self.load_on = None  # unknown until a frame reports LOAD
@@ -45,6 +46,8 @@ class VictronMPPT:
                 self.load_amps = int(val) / 1000
             if key == "MPPT":
                 self.tracker_mode = val
+            if key == "CS":
+                self.charge_state = val
             if key == "H19":
                 self.yield_total_kwh = int(val) / 100
             if key == "ERR":

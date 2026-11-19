@@ -36,6 +36,8 @@ PI_SHUTDOWN_HOLD_MS = 120000
 # Energy is only "OK" for starting the Pi once the battery has recovered this far.
 PI_RESTART_MIN_V = 13.0
 
+BATTERY_REPORT_MS = 10000
+
 
 class PowerMonitor:
     """Samples the INA260 and Victron MPPT, reports to the Pi, and drives the FSM.
@@ -65,6 +67,8 @@ class PowerMonitor:
         self.battery_v = None
 
         self.logic_charge_as_ = 0.0
+        self.logic_i_ = None
+        self.last_battery_report_ms_ = None
         self.ina_errors = 0
         self.ina_consecutive_errors_ = 0
         self.mppt_errors = 0
@@ -98,6 +102,7 @@ class PowerMonitor:
         self.ina_consecutive_errors_ = 0
         self.load_bus_v_ = voltage
         self.load_bus_ms_ = now_ms
+        self.logic_i_ = current
 
         self.logic_charge_as_ += current * dt_ms / 1000.0
         self.pi_link_.send_update("ina260", {
@@ -157,14 +162,18 @@ class PowerMonitor:
 
     def _update_battery_model(self, now_ms):
         mppt = self.mppt_
-        battery = self.battery_
-        if battery.update(now_ms, mppt.battery_volts, mppt.battery_amps):
-            self.pi_link_.send_update("battery", {
-                "cap": battery.capacity_est_ / 3600.0,
-                "cap_min": battery.cap_est_min_ / 3600.0,
-                "cap_max": battery.cap_est_max_ / 3600.0,
-                "soc": battery.capacity_est_ / (battery.nom_ah_ * 3600.0)
-            })
+        logic_a = None
+        if (self.load_bus_ms_ is not None
+                and time.ticks_diff(now_ms, self.load_bus_ms_) <= INA_FRESH_MS
+                and self.load_bus_v_ >= LOAD_BUS_DEAD_V):
+            logic_a = self.logic_i_
+        known = self.battery_.update(now_ms, mppt.battery_volts, mppt.battery_amps,
+                                     mppt.panel_watts, logic_a,
+                                     getattr(mppt, "charge_state", None))
+        if known and (self.last_battery_report_ms_ is None or time.ticks_diff(
+                now_ms, self.last_battery_report_ms_) >= BATTERY_REPORT_MS):
+            self.last_battery_report_ms_ = now_ms
+            self.pi_link_.send_update("battery", self.battery_.report())
 
     @property
     def battery_low_s(self):
