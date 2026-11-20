@@ -213,6 +213,26 @@ def test_unknown_downtime_widens_the_estimate(tmp_path):
     assert m2.sd_ah > 3
 
 
+def test_learned_capacity_survives_a_reset(tmp_path):
+    path = str(tmp_path / "soc.json")
+    m = sm.SocModel(store=path)
+    fill(m)
+    m.capacity_ah = 18.6
+    m.save(0)
+    assert sm.SocModel(store=path).capacity_ah == pytest.approx(18.6)
+
+
+def test_capacity_from_an_older_store_version_is_dropped(tmp_path):
+    # The charge left carries over; a capacity learned with the old counting
+    # doesn't.
+    path = tmp_path / "soc.json"
+    path.write_text(json.dumps({"q": 9 * sm.MAS_PER_AH, "var": 0.04, "cap": 18.3,
+                                "src": "knee", "t": None}))
+    m = sm.SocModel(store=str(path))
+    assert m.remaining_ah == pytest.approx(9.0)
+    assert m.capacity_ah == sm.NOMINAL_CAPACITY_AH
+
+
 def test_corrupt_store_is_ignored(tmp_path):
     path = tmp_path / "soc.json"
     path.write_text("{not json")

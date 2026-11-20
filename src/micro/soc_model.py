@@ -100,6 +100,10 @@ PLATEAU_SD_AH = 1.0
 
 SAVE_EVERY_MS = 600000
 STORE_FILE = "soc.json"
+# Saved capacities are restored only from the same version: bump it when the
+# counting changes, so the new nominal capacity takes over from one learned
+# the old way. (1, unmarked: fused currents plus 11 mA.)
+STORE_VERSION = 2
 RESTORE_SD_AH = 0.3         # for counting lost since the last save
 # Unknown draw while the RP2040 was down: the Pi's converter is on whenever
 # its enable floats, so assume anything up to the Pi's load.
@@ -378,8 +382,8 @@ class SocModel:
             # has no time to give. Keep the older save: it has one, and
             # another reset before the clock arrives should come back to it.
             return
-        state = {"q": self.q_mas_, "var": self.var_, "cap": self.capacity_ah,
-                 "src": self.source, "t": self.now_utc_() if self.now_utc_ else None}
+        state = {"v": STORE_VERSION, "q": self.q_mas_, "var": self.var_,
+                 "cap": self.capacity_ah, "src": self.source, "t": self.now_utc_() if self.now_utc_ else None}
         tmp = self.store_ + ".tmp"
         try:
             with open(tmp, "w") as f:
@@ -399,7 +403,7 @@ class SocModel:
             cap = float(state["cap"])
         except (OSError, ValueError, KeyError, TypeError):
             return
-        if CAPACITY_MIN_AH <= cap <= CAPACITY_MAX_AH:
+        if state.get("v") == STORE_VERSION and CAPACITY_MIN_AH <= cap <= CAPACITY_MAX_AH:
             self.capacity_ah = cap
         self.q_mas_ = q
         self.var_ = var + RESTORE_SD_AH * RESTORE_SD_AH
