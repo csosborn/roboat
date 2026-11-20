@@ -74,6 +74,24 @@ def test_victron_dead_band_falls_back_to_the_ina(tmp_path):
     assert q0 - m.remaining_ah == pytest.approx(0.03 + sm.HIDDEN_DRAW_A, abs=0.002)
 
 
+def test_the_ina_counts_when_the_victron_reads_only_a_little_more(tmp_path):
+    # The Victron's offset drifts by tens of mA; the INA260 is the better
+    # measure of the same load.
+    m = sm.SocModel(store=None)
+    t = fill(m)
+    q0 = m.remaining_ah
+    run(m, t, 60, 13.0, -0.31, logic_a=0.29)
+    assert q0 - m.remaining_ah == pytest.approx(0.29 + sm.HIDDEN_DRAW_A, abs=0.002)
+
+
+def test_charging_is_scaled_for_the_victrons_low_reading(tmp_path):
+    m = sm.SocModel(store=None)
+    t = fill(m)
+    m.q_mas_ = int(5.0 * sm.MAS_PER_AH)
+    run(m, t, 60, 13.6, 2.0, panel_w=30)
+    assert m.remaining_ah == pytest.approx(5.0 + 2.0 * sm.CHARGE_GAIN, abs=0.002)
+
+
 def test_victron_wins_when_it_sees_more_than_the_logic_side(tmp_path):
     # The ESC draws from the load output, outside the INA260.
     m = sm.SocModel(store=None)
@@ -86,10 +104,10 @@ def test_victron_wins_when_it_sees_more_than_the_logic_side(tmp_path):
 def test_knee_voltage_corrects_the_count():
     m = sm.SocModel(store=None)
     t = fill(m)
-    m.q_mas_ = int(8.0 * sm.MAS_PER_AH)   # count says 8 Ah, voltage says ~1.5
+    m.q_mas_ = int(8.0 * sm.MAS_PER_AH)   # count says 8 Ah, voltage says ~1.8
     t = run(m, t, 3 * 60, 12.76 - 0.03 * sm.INTERNAL_R, -0.03 + sm.HIDDEN_DRAW_A)
     assert m.source == "knee"
-    assert m.remaining_ah == pytest.approx(1.5, abs=0.4)
+    assert m.remaining_ah == pytest.approx(1.8, abs=0.4)
 
 
 def test_no_voltage_correction_soon_after_charging():
@@ -145,6 +163,45 @@ def test_state_survives_a_reset(tmp_path):
     counted = (0.3 + sm.HIDDEN_DRAW_A) / 3600   # the one second since boot
     assert lost - counted == pytest.approx(sm.HIDDEN_DRAW_A * 5 / 60, abs=0.0002)
     assert m2.sd_ah < 0.5
+
+
+def test_a_second_reset_before_the_clock_comes_back_to_the_timed_save(tmp_path):
+    path = str(tmp_path / "soc.json")
+    clock = Clock(utc=1_000_000_000_000)
+    m = sm.SocModel(store=path, now_utc=clock)
+    t = fill(m)
+    t = run(m, t, 30, 13.24, -0.3)
+    clock.utc = 1_000_000_000_000 + t
+    m.save(t)
+    q = m.remaining_ah
+
+    # Reset; runs two minutes without the time, then resets again.
+    clock.utc = None
+    m2 = sm.SocModel(store=path, now_utc=clock)
+    run(m2, 0, 2, 13.24, -0.3)
+    assert json.loads(open(path).read())["t"] is not None
+    m3 = sm.SocModel(store=path, now_utc=clock)
+    assert m3.remaining_ah == pytest.approx(q, abs=0.001)
+    assert m3.sd_ah < 1.0
+
+    # The time arrives: the whole gap since the save is settled, and saved.
+    clock.utc = 1_000_000_000_000 + t + 10 * MIN
+    m3.update(0, 13.24, -0.3, 0)
+    assert q - m3.remaining_ah == pytest.approx(sm.HIDDEN_DRAW_A * 10 / 60, abs=0.001)
+    assert json.loads(open(path).read())["t"] == clock.utc
+
+
+def test_full_settles_an_unknown_gap(tmp_path):
+    path = str(tmp_path / "soc.json")
+    clock = Clock(utc=1_000_000_000_000)
+    m = sm.SocModel(store=path, now_utc=clock)
+    fill(m)
+    m.save(0)
+    clock.utc = None
+    m2 = sm.SocModel(store=path, now_utc=clock)
+    fill(m2)
+    assert m2.sd_ah == pytest.approx(0.15, abs=0.01)
+    assert json.loads(open(path).read())["src"] == "full"
 
 
 def test_unknown_downtime_widens_the_estimate(tmp_path):
