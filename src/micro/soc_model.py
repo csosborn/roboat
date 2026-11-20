@@ -3,12 +3,15 @@
 Counts charge, and uses voltage only where it means something. The numbers come
 from the cycles in docs/battery/README.md:
 
-- Charge is counted from the Victron's battery current. At low discharge
-  currents the Victron sometimes reads 0.00 A while ~30 mA flows, so when
-  nothing is charging, the larger of its reading and the INA260's logic-side
-  current is used. (The INA260 doesn't see the ESC, but the Victron does.)
-- Neither sensor sees about 11 mA that the battery loses anyway (the Victron's
-  own consumption, most likely). It is subtracted all the time.
+- Discharge is counted from the INA260's logic-side current. The Victron's
+  battery current has 10 mA steps, a dead-band below ~30 mA, and an offset
+  that drifts by tens of mA, so it's used only when it reads far more than the
+  INA260: the ESC draws from the load output outside the INA260.
+- Neither sensor sees what the MPPT itself uses (~21 mA, metered 2026-11-19)
+  or the Smart Battery Sense (~0.7 mA). That draw is subtracted whenever
+  nothing is charging, including while the load output is off.
+- Charging is counted from the Victron, which reads ~5% low there (a meter in
+  the battery lead, and the October and November charge/discharge balance).
 - Full: 14.1 V or more with under 0.5 A going in, or the Victron in float.
 - Voltage corrects the count only at steady, light discharge, at least
   QUIET_MS after any charging, and is compensated for the battery's ~0.2 ohm:
@@ -19,7 +22,9 @@ from the cycles in docs/battery/README.md:
   means the load output is about to turn off.
 - Capacity is learned from each full-to-knee or knee-to-full stretch.
 - The state is kept in flash, so a reset doesn't restart the estimate from a
-  guess at the voltage.
+  guess at the voltage. After a reset nothing is saved until the GPS clock
+  says how long the board was down; until then the older save, with its own
+  time, is the one to come back to.
 
 Estimates carry a standard deviation, which grows while counting and shrinks
 at each landmark. The charge is held as integer milliamp-seconds: the RP2040's
@@ -29,13 +34,18 @@ import json
 import os
 import time
 
-NOMINAL_CAPACITY_AH = 18.3   # full to the 12.0 V cut-off, 2026-11 run-down
+NOMINAL_CAPACITY_AH = 19.0   # full to the 12.0 V cut-off: 18.8 (2026-11), 19.7 (2026-10)
 CAPACITY_MIN_AH = 12.0
 CAPACITY_MAX_AH = 21.0
 CAPACITY_LEARN_WEIGHT = 0.3
 
-HIDDEN_DRAW_A = 0.011
-CHARGING_A = 0.05           # above this, the Victron's reading is used as is
+HIDDEN_DRAW_A = 0.022       # the MPPT's own ~21 mA plus the Battery Sense
+CHARGING_A = 0.05           # above this, the Victron's reading is used
+CHARGE_GAIN = 1.05          # the Victron's charging current reads ~5% low
+# The Victron is used while discharging only when it reads this much more than
+# the INA260 (the motor); below that, its offset drift is larger than anything
+# it could add.
+VICTRON_OVER_INA_A = 0.1
 # Ohms. The instant step when the Pi switches is ~0.1; 0.2 also covers the
 # slower relaxation, and lines up the Pi-on and Pi-off discharge curves.
 INTERNAL_R = 0.2
@@ -46,7 +56,7 @@ FULL_HOLD_MS = 120000
 VICTRON_FLOAT = "5"         # VE.Direct CS (charger state)
 
 # Counting error, as a standard deviation growth rate: a share of the current
-# plus a fixed offset (the Victron's 10 mA steps, the hidden draw's spread).
+# plus a fixed offset (the hidden draw's spread, the Victron's steps).
 COUNT_GAIN_ERR = 0.02
 COUNT_OFFSET_ERR_A = 0.008
 
@@ -58,33 +68,34 @@ EMA_MS = 60000
 COUNT_GAP_MS = 60000        # readings come every second; longer is a gap
 
 # Knee: compensated volts -> (Ah left to the cut-off, standard deviation).
-# From the 2026-11 run-down at 0.28 A (Pi on) and 0.03 A (Pi off); the
-# 2026-10 run-down at 0.12-0.41 A agrees within ~0.2 Ah. Above ~13.06 V the
-# lower plateau is too flat (20 mV over 3 Ah) to read.
+# The mean of the 2026-10 run-down (0.12-0.37 A) and the 2026-11 one (0.28 A
+# Pi on, 0.03 A Pi off), counted as above; they agree within ~0.3 Ah. Above
+# ~13.06 V the lower plateau is too flat (20 mV over 3 Ah) to read.
 KNEE = (
     (12.056, 0.0, 0.15),
-    (12.37, 0.25, 0.15),
-    (12.59, 0.5, 0.2),
-    (12.68, 0.75, 0.25),
+    (12.37, 0.28, 0.15),
+    (12.59, 0.55, 0.2),
+    (12.68, 0.84, 0.25),
     (12.71, 1.0, 0.3),
-    (12.74, 1.25, 0.3),
-    (12.76, 1.5, 0.35),
-    (12.81, 1.75, 0.4),
-    (12.865, 2.1, 0.45),
-    (12.885, 2.5, 0.5),
-    (12.92, 3.0, 0.6),
-    (12.96, 3.5, 0.7),
-    (13.00, 4.0, 0.8),
-    (13.03, 4.5, 1.0),
-    (13.06, 5.0, 1.2),
+    (12.74, 1.57, 0.3),
+    (12.76, 1.8, 0.35),
+    (12.81, 2.1, 0.4),
+    (12.865, 2.45, 0.45),
+    (12.885, 2.85, 0.5),
+    (12.92, 3.28, 0.6),
+    (12.96, 3.75, 0.7),
+    (13.00, 4.35, 0.8),
+    (13.03, 4.85, 1.0),
+    (13.06, 5.25, 1.2),
 )
 # Plateaus, as bounds: at or above UPPER_PLATEAU_V at least UPPER_MIN_AH is
 # left; between the knee's top and LOWER_PLATEAU_V at most LOWER_MAX_AH. The
-# step between them (~13.14-13.25 V compensated) sits at 10.5-12 Ah.
+# step between them (~13.14-13.25 V compensated) sits at 10-12 Ah: both
+# run-downs leave the upper plateau at ~12.1 Ah and the step at 9.9-10.4.
 UPPER_PLATEAU_V = 13.25
-UPPER_MIN_AH = 11.5
+UPPER_MIN_AH = 11.8
 LOWER_PLATEAU_V = 13.14
-LOWER_MAX_AH = 10.5
+LOWER_MAX_AH = 11.0
 PLATEAU_SD_AH = 1.0
 
 SAVE_EVERY_MS = 600000
@@ -96,6 +107,16 @@ GAP_SD_A = 0.15
 GAP_MAX_MS = 30 * 86400000
 
 MAS_PER_AH = 3600000
+
+
+def current(victron_a, logic_a, charging):
+    """The battery's current (positive charging) from the two sensors."""
+    if charging:
+        return victron_a * CHARGE_GAIN if victron_a > 0 else victron_a
+    i = min(victron_a, 0.0)
+    if logic_a is not None and victron_a > -(abs(logic_a) + VICTRON_OVER_INA_A):
+        i = -abs(logic_a)
+    return i - HIDDEN_DRAW_A
 
 
 def knee_lookup(v):
@@ -178,10 +199,7 @@ class SocModel:
         if self.boot_ms_ is None:
             self.boot_ms_ = now_ms
         charging = panel_w > 0 or victron_a > CHARGING_A
-        i = victron_a
-        if not charging and logic_a is not None:
-            i = min(victron_a, -abs(logic_a))
-        i -= HIDDEN_DRAW_A
+        i = current(victron_a, logic_a, charging)
 
         if self.last_ms_ is not None:
             dt = time.ticks_diff(now_ms, self.last_ms_)
@@ -290,6 +308,7 @@ class SocModel:
         if self.full_synced_:
             return  # once per absorption
         self.full_synced_ = True
+        self.gap_from_utc_ = None   # full is full, however long the board was down
         self._learn(None, "full")
         self._set(self.capacity_ah, 0.15, "full")
         self.landmark_ms_ = now_ms
@@ -354,10 +373,13 @@ class SocModel:
         self.saved_ms_ = now_ms
         if self.q_mas_ is None or self.store_ is None:
             return
+        if self.gap_from_utc_ is not None:
+            # The downtime before this boot isn't settled yet, so this state
+            # has no time to give. Keep the older save: it has one, and
+            # another reset before the clock arrives should come back to it.
+            return
         state = {"q": self.q_mas_, "var": self.var_, "cap": self.capacity_ah,
                  "src": self.source, "t": self.now_utc_() if self.now_utc_ else None}
-        if self.gap_from_utc_ is not None:
-            state["t"] = None  # the gap before this boot is still unsettled
         tmp = self.store_ + ".tmp"
         try:
             with open(tmp, "w") as f:
@@ -403,3 +425,4 @@ class SocModel:
         self.q_mas_ -= int(HIDDEN_DRAW_A * hours * MAS_PER_AH)
         sd = GAP_SD_A * hours
         self.var_ += sd * sd
+        self.save(now_ms)

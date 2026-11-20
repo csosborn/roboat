@@ -171,16 +171,30 @@ What they add:
   - In 2025 it read ~0.1 A more than the INA260 (0.45 A against 0.345 A).
   - Its load current (`IL`) has 0.1 A steps, so it reads zero at the Pi-off
     load.
-- **About 11 mA leaves the battery that neither sensor sees.**
-  - It's most likely the Victron's own consumption.
-  - With the load output off on 11-16, the battery fell from 12.0 V to
-    11.3 V in 14 hours, with no current measured.
-  - It's also what makes the November cycle balance. Count discharge as the
-    larger of the Victron's and the INA260's currents, take off 11 mA, and
-    the cycle comes to 18.4 Ah out against 18.5 Ah back in.
-- **On that basis, full to the 12.0 V cut-off is 18.3 Ah** at the Pi's loads,
-  rather than the 18.8 Ah estimated in October. The Pi's 12.8 V shutdown came
-  at about 2.0 Ah left (11%).
+- **The Victron's current offset drifts.** Hourly means with the Pi on
+  (October to November) put it anywhere from 38 mA below to 25 mA above the
+  INA260, varying from day to day and by ~20 mA from hour to hour. It can't
+  resolve a draw of a few mA.
+- **About 22 mA leaves the battery that neither sensor sees.** Metered on
+  2026-11-19, with the Pi off:
+  - In the load-output lead, the meter matched the INA260 within ~2 mA at
+    four readings, so nothing on the load output escapes the INA260.
+  - In the MPPT's battery lead it read ~51 mA against the INA260's ~29 mA:
+    the MPPT itself uses ~21 mA, and its own battery current leaves that out
+    (it read 0.03 A, the load alone).
+  - The Smart Battery Sense draws ~0.7 mA (4 mA while VictronConnect is
+    connected to it).
+  - It also explains the battery falling from 12.0 V to 11.3 V in 14 hours
+    with the load output off on 11-16.
+- **The Victron reads ~5% low while charging.** Counting discharge as the
+  INA260 plus 22 mA, both run-downs come out ~1.0 Ah more than the Victron
+  counted going back in (October 19.5 out, 18.5 in; November 18.8 out,
+  17.8 in). A meter in the battery lead read ~1.8 A while the Victron said
+  1.71-1.73 A. So the charge counts above are probably all ~5% low too
+  (still no fade).
+- **On that basis, full to the 12.0 V cut-off is about 19 Ah** at the Pi's
+  loads: 18.8 Ah in November, 19.7 in October (with its 4.5-hour gap
+  bridged). The Pi's 12.8 V shutdown came at about 2.2 Ah left (12%).
 - **The battery's effective resistance is about 0.2 ohm.** The instant step
   when the Pi switches is ~0.1 ohm; the rest is relaxation over minutes. With
   0.2 ohm, the Pi-on (0.28 A) and Pi-off (0.03 A) discharge curves line up,
@@ -192,25 +206,28 @@ What they add:
   - It also went to 100% at the start of bulk charging.
 
 `src/micro/soc_model.py` replaces it, along the lines recommended above:
-- It counts charge, using the larger of the two currents when nothing is
-  charging, and takes off the hidden 11 mA.
+- It counts discharge from the INA260 plus the hidden 22 mA, and uses the
+  Victron only when it reads at least 0.1 A more (the motor). Charging comes
+  from the Victron, scaled up 5%.
 - Full: 14.1 V or more with under 0.5 A going in, held for 2 minutes, or the
   Victron in float.
 - It corrects with voltage only at a steady, light discharge at least 2 hours
   after charging, compensated at 0.2 ohm:
   - in the knee, below ~13.06 V, as a measurement;
   - on the plateaus, only as bounds: the upper plateau means at least
-    11.5 Ah left, the lower one at most 10.5 Ah.
+    11.8 Ah left, the lower one at most 11.0 Ah.
 - It learns capacity from each stretch between full and the knee, in either
   direction.
 - It saves its state to flash every 10 minutes. After a reset it picks up
-  from the save, and charges the downtime once the GPS gives the time.
+  from the save, and charges the downtime once the GPS gives the time. It
+  doesn't save again until then, so a second reset comes back to the same
+  timed save.
 
 It reports the charge left to the 12.0 V cut-off with a standard deviation
 (InfluxDB `battery`: `cap_ah`, `soc`, `soc_sd_ah`, `full_ah`, and `basis`,
 meaning what last set the estimate). Replaying both run-downs, it:
 - reads 0% at the cut-off;
-- learns 18.1-18.35 Ah each time;
+- learns 18.9-19.0 Ah each time;
 - is unaffected by a reset;
 - when started with no saved state, locks on as soon as the knee appears.
 
@@ -222,10 +239,10 @@ the estimate only once it has proved itself on the boat.
 - **One cycle, at light loads (0.1-0.4 A), indoors.** Capacity drops with cold
   and with high current. LiFePO4 must not be charged below about 0 °C, and
   nothing on the boat measures battery temperature yet.
-- **The Victron reports current in 10 mA steps,** and at very low currents it
-  can read zero (see November 2026, above). The hidden ~11 mA is fitted from
-  one cycle on the current wiring. A meter in series with the battery, with
-  the load output off, would pin it down.
+- **The Victron reports current in 10 mA steps,** at very low currents it can
+  read zero, and its offset drifts (see November 2026, above). The hidden
+  22 mA and the 5% charging error each rest on a few eyeballed meter readings
+  and two cycles.
 - **All charging so far is from a bench supply** that runs to absorption
   every time. On real sun the battery may rarely reach full, so the count
   will run longer between resets to 100%.
@@ -240,8 +257,9 @@ the estimate only once it has proved itself on the boat.
   load and where 12.8 V then falls.
 - A day or more on real sun, with variable current and partial charges. This is
   the case the battery model has to handle.
-- Battery temperature, from a Victron temperature sensor or a thermistor read
-  by the RP2040, so later cycles can be compared fairly.
+- Battery temperature, so later cycles can be compared fairly. The Smart
+  Battery Sense measures it, but VE.Direct's text feed doesn't carry it; the
+  HEX protocol may (register 0xEDEC).
 - Repeated full cycles, to see capacity fade. The battery model can record the
   capacity at each one.
 

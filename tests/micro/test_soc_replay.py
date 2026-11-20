@@ -41,9 +41,9 @@ def test_november_run_down(tmp_path):
     reset = datetime.datetime(2026, 11, 14, 18, 32, tzinfo=UTC)  # a real boot that day
     trace = replay("run-down-2026-11.csv", str(tmp_path / "soc.json"), resets={reset})
 
-    # The Pi's 12.8 V shutdown came at about 2 Ah left.
+    # The Pi's 12.8 V shutdown came at about 2.2 Ah left.
     _, v, left, sd, _ = at(trace, datetime.datetime(2026, 11, 14, 11, 0, tzinfo=UTC))
-    assert left == pytest.approx(2.0, abs=0.5) and sd < 0.5
+    assert left == pytest.approx(2.2, abs=0.4) and sd < 0.5
 
     # The reset barely matters: compare with a run that had none.
     plain = replay("run-down-2026-11.csv", str(tmp_path / "plain.json"))
@@ -56,11 +56,11 @@ def test_november_run_down(tmp_path):
     assert cut[2] == pytest.approx(0.0, abs=0.2)
 
     # Capacity, learned on the way down and again on the recharge.
-    assert 18.0 <= trace[-1][4] <= 18.5
+    assert 18.6 <= trace[-1][4] <= 19.3
 
 
 def test_october_run_downs(tmp_path):
     trace = replay("discharge-2026-10.csv", str(tmp_path / "soc.json"))
-    assert 18.0 <= trace[-1][4] <= 18.6
+    assert 18.7 <= trace[-1][4] <= 19.5
     cut = next(row for row in trace if row[1] <= 12.05)
     assert cut[2] == pytest.approx(0.0, abs=0.3)
