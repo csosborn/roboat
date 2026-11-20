@@ -31,8 +31,8 @@ PI_POWER_PIN = 11
 DRIVE_POWER_PIN = 7
 ESC_PIN = 8
 NEOPIXEL_PIN = 16
-# The Victron only transmits, so UART1's TX goes to an otherwise unused pin
-# (GPIO8 is the ESC's).
+# UART1's TX goes to the Victron's RX, for VE.Direct HEX reads (GPIO8, UART1's
+# usual TX, is the ESC's).
 MPPT_TX_PIN = 24
 MPPT_RX_PIN = 9
 # An Adafruit BNO085 on the STEMMA QT chain (I2C1). Not read yet.

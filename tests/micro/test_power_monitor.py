@@ -37,7 +37,12 @@ class FakeMPPT:
         self.tracker_mode = 0
         self.load_on = True
         self.yield_total_kwh = 0
+        self.battery_temp_c = None
+        self.polls = []
         self.raise_on_update = None
+
+    def poll(self, now_ms):
+        self.polls.append(now_ms)
 
     def update(self):
         if self.raise_on_update:
@@ -235,6 +240,20 @@ def test_unknown_load_state_does_not_block_main_power():
     mon.step(2)
     assert power_events(events) == [MAIN_POWER_UP]
     assert "load_on" not in mon.pi_link_.sent[-1][1]
+
+
+def test_battery_temperature_is_sent_only_when_known():
+    mon, mppt, events, _ = make()
+    mppt.frame(13.3)
+    mon.step(1)
+    mppt.frame(13.3)
+    mon.step(2)
+    assert "batt_temp_c" not in mon.pi_link_.sent[-1][1]
+    mppt.battery_temp_c = 16.254
+    mppt.frame(13.3)
+    mon.step(3)
+    assert mon.pi_link_.sent[-1][1]["batt_temp_c"] == 16.25
+    assert mppt.polls == [1, 2, 3]
 
 
 def test_battery_model_gets_the_ina_current_only_while_fresh_and_live():

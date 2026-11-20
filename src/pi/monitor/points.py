@@ -25,6 +25,8 @@ def _mppt(m):
     }
     if "load_on" in m:
         fields["load_on"] = int(m["load_on"])
+    if "batt_temp_c" in m:
+        fields["batt_temp_c"] = float(m["batt_temp_c"])
     return fields
 
 

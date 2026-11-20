@@ -122,6 +122,7 @@ class PowerMonitor:
     def _update_mppt(self, now_ms):
         mppt = self.mppt_
         try:
+            mppt.poll(now_ms)
             mppt.update()
         except (ValueError, UnicodeError):
             self.mppt_errors += 1
@@ -149,6 +150,8 @@ class PowerMonitor:
         }
         if mppt.load_on is not None:
             update["load_on"] = 1 if mppt.load_on else 0
+        if mppt.battery_temp_c is not None:
+            update["batt_temp_c"] = round(mppt.battery_temp_c, 2)
         self.pi_link_.send_update("mppt", update)
         self._update_battery_model(now_ms)
 
