@@ -1,7 +1,7 @@
 import json
 import struct
 
-from link import LineReader, handle, heartbeat, make_request_handler
+from link import LineReader, handle, heartbeat, make_request_handler, parse
 from timesync import ChronyRefclock, SOCK_MAGIC, encode_sample
 from writer import QueuedWriter
 
@@ -94,3 +94,20 @@ def test_live_shutdown_request_powers_off_once_and_replays_are_ignored():
                0.0, w, FakeClock(), on_request)
     assert calls == [["systemctl", "poweroff", "--no-block"]]
     assert not w.queue_
+
+
+def test_a_message_after_line_noise_is_recovered():
+    # The boot status after a reset, as the Pi received it on 2026-11-19
+    # (noise bytes decoded as replacement characters).
+    boot = '{"version": "21271029c576", "src": "status", "event": "boot", "boot": 1}'
+    line = LineReader().feed(b"\xfe\xfe$$\rBHH\x00\xc2{\x11I\tII\xd2H" + boot.encode() + b"\r\n")[0]
+    assert parse(line) == json.loads(boot)
+
+
+def test_noise_alone_is_still_a_bad_buffer(capsys):
+    assert parse("\ufffd\ufffd$$ BHH {not json") is None
+    assert "Bad buffer" in capsys.readouterr().out
+
+
+def test_a_clean_message_parses_as_before():
+    assert parse('{"src": "gps", "mode": 3}') == {"src": "gps", "mode": 3}
