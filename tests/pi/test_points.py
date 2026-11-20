@@ -43,3 +43,9 @@ def test_mppt_battery_temperature_is_optional():
     assert "batt_temp_c" not in to_point(m)["fields"]
     m["batt_temp_c"] = 16.25
     assert to_point(m)["fields"]["batt_temp_c"] == 16.25
+
+
+def test_status_carries_the_cpu_temperature():
+    m = {"src": "status", "utc_ms": 1795199571330, "offset_s": 0, "state": "PiAlive",
+         "lipo_v": 4.2, "cpu_temp_c": 24.3}
+    assert to_point(m)["fields"]["cpu_temp_c"] == 24.3

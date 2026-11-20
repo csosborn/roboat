@@ -19,6 +19,14 @@ def test_lipo_reading_undoes_the_divider_and_averages():
     assert sense.volts() == pytest.approx(4.2 * ps.LIPO_CAL, abs=0.002)
 
 
+def test_die_temperature_follows_the_datasheet_slope():
+    at_27 = round(0.706 / 3.3 * 65535)
+    assert ps.DieTemp(FakeADC([at_27])).celsius() == pytest.approx(27, abs=0.1)
+    # 20 degrees warmer is 34.42 mV lower.
+    warmer = round((0.706 - 20 * 0.001721) / 3.3 * 65535)
+    assert ps.DieTemp(FakeADC([warmer - 4, warmer + 4] * 8)).celsius() == pytest.approx(47, abs=0.1)
+
+
 def run(check, pg, now):
     events = []
     check.step(now, events.append)

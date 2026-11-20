@@ -20,7 +20,8 @@ from scheduler import Scheduler
 from telemetry_log import TelemetryLog
 from untimed import Untimed
 from pi_shutdown import PiShutdown
-from power_sense import LipoSense, PiSupplyCheck, LIPO_PIN, PI_SUPPLY_GOOD_PIN
+from power_sense import (LipoSense, DieTemp, PiSupplyCheck, LIPO_PIN, CPU_TEMP_ADC,
+                         PI_SUPPLY_GOOD_PIN)
 
 try:
     from version import VERSION
@@ -131,6 +132,13 @@ def run():
             return lipo.volts()
         except OSError:
             return None
+    die_temp = DieTemp(ADC(CPU_TEMP_ADC))
+
+    def cpu_temp_c():
+        try:
+            return die_temp.celsius()
+        except OSError:
+            return None
     ina_made = []
 
     def make_ina():
@@ -187,6 +195,7 @@ def run():
             battery_v=monitor.battery_v,
             battery_low_s=monitor.battery_low_s,
             restart_blocked=1 if roboat.restart_blocked_ else 0, lipo_v=lipo_v(),
+            cpu_temp_c=cpu_temp_c(),
             pi_supply_good=1 if pi_supply.good else 0, imu_present=imu_present, **extra)
         if tlog is not None:
             fields.update(log_backlog=tlog.backlog, log_bytes=tlog.stored_bytes,
