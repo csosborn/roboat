@@ -35,3 +35,11 @@ def test_battery_estimate_fields():
     assert p["measurement"] == "battery"
     assert p["fields"]["cap_ah"] == 9.1 and p["fields"]["soc_sd_ah"] == 0.5
     assert p["fields"]["full_ah"] == 18.3 and p["fields"]["basis"] == "knee"
+
+
+def test_mppt_battery_temperature_is_optional():
+    m = {"src": "mppt", "sol_v": 0.0, "sol_p": 0, "mppt_mode": "0", "mppt_epoch": 3,
+         "load_i": 0.3, "batt_v": 13.2, "batt_i": -0.3, "mppt_total_kwh": 27.9}
+    assert "batt_temp_c" not in to_point(m)["fields"]
+    m["batt_temp_c"] = 16.25
+    assert to_point(m)["fields"]["batt_temp_c"] == 16.25

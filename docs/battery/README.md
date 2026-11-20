@@ -258,8 +258,8 @@ the estimate only once it has proved itself on the boat.
 - A day or more on real sun, with variable current and partial charges. This is
   the case the battery model has to handle.
 - Battery temperature, so later cycles can be compared fairly. The Smart
-  Battery Sense measures it, but VE.Direct's text feed doesn't carry it; the
-  HEX protocol may (register 0xEDEC).
+  Battery Sense measures it and the MPPT passes it on over VE.Direct HEX
+  (register 0xEDEC); from 2026-11-20 it's in InfluxDB as `mppt.batt_temp_c`.
 - Repeated full cycles, to see capacity fade. The battery model can record the
   capacity at each one.
 
