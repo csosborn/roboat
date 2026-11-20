@@ -9,6 +9,10 @@ The Pi supply's power-good output (PG, open drain) reaches GPIO10 through a
 divider powered by that supply's own output (10k from 5 V, 15k to ground), so
 the pin is high only while the supply is enabled and its output is in range.
 It reads low whenever the Pi is deliberately off.
+
+The RP2040's own temperature sensor is on ADC channel 4. It measures the die,
+so it reads a few degrees above the air around the board, and it shares the
+3.3 V reference: below a ~3.4 V LiPo it reads low by the same share.
 """
 import time
 
@@ -19,6 +23,12 @@ LIPO_DIVIDER = 2.0
 LIPO_CAL = 1.034
 LIPO_SAMPLES = 16
 ADC_REF_V = 3.3
+
+# The RP2040 datasheet's conversion: 0.706 V at 27 C, falling 1.721 mV per
+# degree. Typical values, uncalibrated: expect a few degrees of offset.
+CPU_TEMP_ADC = 4
+CPU_TEMP_V_27C = 0.706
+CPU_TEMP_V_PER_C = 0.001721
 
 PI_SUPPLY_GOOD_PIN = 10
 # Power-good must hold a new state this long before it's reported. That covers
@@ -36,6 +46,20 @@ class LipoSense:
         for _ in range(LIPO_SAMPLES):
             total += self.adc_.read_u16()
         return round(total / LIPO_SAMPLES * ADC_REF_V / 65535 * LIPO_DIVIDER * LIPO_CAL, 3)
+
+
+class DieTemp:
+    """The RP2040's own temperature, in degrees C."""
+
+    def __init__(self, adc):
+        self.adc_ = adc
+
+    def celsius(self):
+        total = 0
+        for _ in range(LIPO_SAMPLES):
+            total += self.adc_.read_u16()
+        volts = total / LIPO_SAMPLES * ADC_REF_V / 65535
+        return round(27 - (volts - CPU_TEMP_V_27C) / CPU_TEMP_V_PER_C, 1)
 
 
 class PiSupplyCheck:
