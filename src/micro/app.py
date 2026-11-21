@@ -159,6 +159,8 @@ def run():
         shutdown.start(time.ticks_ms(), "low_battery")
 
     def report_event(event, **fields):
+        if fields.get("reason") == "main_power_lost":
+            fields.update(monitor.main_power_report(time.ticks_ms()))
         report(event=event, **fields)
 
     roboat = RoboatSM(neopixel=np, pi_power_pin=pi_power, drive_power_pin=drive_power,
