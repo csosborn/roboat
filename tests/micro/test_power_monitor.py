@@ -231,6 +231,64 @@ def test_dead_load_bus_on_the_ina_means_no_main_power():
     assert MAIN_POWER_UP not in events and power_events(events)[-1] == MAIN_POWER_DOWN
 
 
+def test_cause_when_the_mppt_reports_the_load_output_off():
+    mon, mppt, events, _ = make()
+    mppt.frame(13.3)
+    mon.step(1)
+    mppt.frame(13.3)
+    mon.step(2)
+    mppt.load_on = False
+    mppt.frame(13.3)
+    mon.step(3)
+    assert power_events(events)[-1] == MAIN_POWER_DOWN
+    assert mon.main_power_report(3) == {"power_cause": "load_off"}
+
+
+def test_cause_and_reading_when_the_load_bus_dies():
+    ina = FakeINA(volts=13.3)
+    mon, mppt, events, _ = make(ina)
+    mppt.frame(13.3)
+    mon.step(1)
+    mon.step(1000)
+    mppt.frame(13.3)
+    mon.step(1001)
+    assert power_events(events)[-1] == MAIN_POWER_UP
+    ina.volts = 3.21
+    mon.step(2000)  # INA sample
+    mppt.frame(13.3)
+    mon.step(2001)
+    assert power_events(events)[-1] == MAIN_POWER_DOWN
+    assert mon.main_power_report(2001) == {"power_cause": "load_bus_dead", "load_bus_v": 3.21}
+    # An old reading is left out rather than reported as current.
+    assert "load_bus_v" not in mon.main_power_report(2000 + pm.INA_FRESH_MS + 1)
+
+
+def test_cause_when_the_battery_voltage_drops():
+    mon, mppt, events, _ = make()
+    mppt.frame(13.0)
+    mon.step(1)
+    mppt.frame(13.0)
+    mon.step(2)
+    mppt.frame(12.3)
+    mon.step(3)
+    assert power_events(events)[-1] == MAIN_POWER_DOWN
+    assert mon.main_power_report(3)["power_cause"] == "low_voltage"
+
+
+def test_cause_is_the_first_check_that_failed():
+    mon, mppt, events, _ = make()
+    mppt.frame(13.0)
+    mon.step(1)
+    mppt.frame(13.0)
+    mon.step(2)
+    mppt.frame(12.3)
+    mon.step(3)
+    mppt.load_on = False  # the Victron switches the output off afterwards
+    mppt.frame(12.0)
+    mon.step(4)
+    assert mon.main_power_report(4)["power_cause"] == "low_voltage"
+
+
 def test_unknown_load_state_does_not_block_main_power():
     mon, mppt, events, _ = make()
     mppt.load_on = None

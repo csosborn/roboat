@@ -62,6 +62,7 @@ class PowerMonitor:
         self.mppt_epoch_ = mppt.epoch
         self.mppt_frames_ = 0
         self.main_power_ = None
+        self.main_power_cause = None  # "load_off", "load_bus_dead" or "low_voltage"
         self.low_since_ms_ = None
         self.last_assess_ms_ = None
         self.battery_v = None
@@ -199,24 +200,47 @@ class PowerMonitor:
         elif volts >= PI_SHUTDOWN_CLEAR_V:
             self.low_since_ms_ = None
 
+    def _load_bus_fresh(self, now_ms):
+        return (self.load_bus_ms_ is not None
+                and time.ticks_diff(now_ms, self.load_bus_ms_) <= INA_FRESH_MS)
+
+    def _load_output_dead(self, now_ms):
+        """Why the load output counts as dead ("load_off" or "load_bus_dead"), or None."""
+        if not self._mppt_stale(now_ms) and self.mppt_.load_on is False:
+            return "load_off"
+        if self._load_bus_fresh(now_ms) and self.load_bus_v_ < LOAD_BUS_DEAD_V:
+            return "load_bus_dead"
+        return None
+
     def load_output_live(self, now_ms):
         """False once the MPPT says its load output is off, or the INA260 reads it dead."""
-        if not self._mppt_stale(now_ms) and self.mppt_.load_on is False:
-            return False
-        if (self.load_bus_ms_ is not None
-                and time.ticks_diff(now_ms, self.load_bus_ms_) <= INA_FRESH_MS
-                and self.load_bus_v_ < LOAD_BUS_DEAD_V):
-            return False
-        return True
+        return self._load_output_dead(now_ms) is None
+
+    def main_power_report(self, now_ms):
+        """Fields for the event that cuts the Pi: which check took main power down,
+        and the INA260's load bus reading if it's fresh (battery_v is in every status)."""
+        fields = {"power_cause": self.main_power_cause}
+        if self._load_bus_fresh(now_ms):
+            fields["load_bus_v"] = round(self.load_bus_v_, 3)
+        return fields
 
     def _assess_main_power(self, volts, now_ms):
-        if not self.load_output_live(now_ms):
-            self.main_power_ = False
+        dead = self._load_output_dead(now_ms)
+        if dead is not None:
+            self._set_main_power(False, dead)
         elif self.main_power_ is not True and volts > MAIN_POWER_UP_V:
-            self.main_power_ = True
+            self._set_main_power(True)
         elif self.main_power_ is not False and volts < MAIN_POWER_DOWN_V:
-            self.main_power_ = False
+            self._set_main_power(False, "low_voltage")
         elif self.main_power_ is None:
             # Inside the hysteresis band with no history: pick the nearer side.
-            self.main_power_ = volts >= (MAIN_POWER_UP_V + MAIN_POWER_DOWN_V) / 2
+            self._set_main_power(volts >= (MAIN_POWER_UP_V + MAIN_POWER_DOWN_V) / 2,
+                                 "low_voltage")
         self.dispatch_(MAIN_POWER_UP if self.main_power_ else MAIN_POWER_DOWN)
+
+    def _set_main_power(self, on, cause=None):
+        # Keep the cause from the moment main power went down: that's the
+        # dispatch that cuts the Pi, and a later check failing too changes nothing.
+        if not on and self.main_power_ is not False:
+            self.main_power_cause = cause
+        self.main_power_ = on
