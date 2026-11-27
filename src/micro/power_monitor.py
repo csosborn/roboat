@@ -173,7 +173,8 @@ class PowerMonitor:
             logic_a = self.logic_i_
         known = self.battery_.update(now_ms, mppt.battery_volts, mppt.battery_amps,
                                      mppt.panel_watts, logic_a,
-                                     getattr(mppt, "charge_state", None))
+                                     getattr(mppt, "charge_state", None),
+                                     mppt.load_on)
         if known and (self.last_battery_report_ms_ is None or time.ticks_diff(
                 now_ms, self.last_battery_report_ms_) >= BATTERY_REPORT_MS):
             self.last_battery_report_ms_ = now_ms
