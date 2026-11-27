@@ -67,8 +67,9 @@ class FakeBattery:
     def __init__(self):
         self.updates = []
 
-    def update(self, now, v, i, panel_w, logic_a, charger_state):
+    def update(self, now, v, i, panel_w, logic_a, charger_state, load_on=None):
         self.updates.append((now, v, i, panel_w, logic_a, charger_state))
+        self.load_on = load_on
         return True
 
     def report(self):
@@ -327,6 +328,20 @@ def test_battery_model_gets_the_ina_current_only_while_fresh_and_live():
     mppt.frame(13.2)
     mon.step(1001 + pm.INA_FRESH_MS + 1)
     assert battery.updates[-1][4] is None
+
+
+def test_battery_model_gets_the_load_output_state():
+    mon, mppt, events, _ = make()
+    battery = mon.battery_
+    mppt.frame(13.2)
+    mon.step(1)
+    mppt.frame(13.2)
+    mon.step(1001)
+    assert battery.load_on is True
+    mppt.load_on = None
+    mppt.frame(13.2)
+    mon.step(2001)
+    assert battery.load_on is None
 
 
 def test_battery_reports_are_rate_limited():
